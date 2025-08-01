@@ -25,7 +25,6 @@ impl RouterService {
 
 impl Service<Request<Incoming>> for RouterService {
   type Response = Response<UnsyncBoxBody<Bytes, Error>>;
-  // type Response = Response<Channel<Bytes, Error>>;
   type Error = Error;
   type Future = Pin<Box<dyn Future<Output = anyhow::Result<Self::Response, Self::Error>> + Send>>;
 

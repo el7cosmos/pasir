@@ -4,8 +4,7 @@ use ext_php_rs::ffi::php_handle_auth_data;
 use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
-use hyper::http::request::Parts;
-use hyper::{HeaderMap, Response, Version};
+use hyper::{HeaderMap, Request, Response, Version};
 use std::ffi::{c_void, CString};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -18,8 +17,7 @@ pub(crate) struct Context {
   path_info: Option<String>,
   local_addr: SocketAddr,
   peer_addr: SocketAddr,
-  head: Parts,
-  body: Bytes,
+  request: Request<Bytes>,
   pub(crate) response_head: HeaderMap,
   pub(crate) buffer: Vec<u8>,
   respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Error>>>>,
@@ -32,8 +30,7 @@ impl Context {
     path_info: Option<String>,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
-    head: Parts,
-    body: Bytes,
+    request: Request<Bytes>,
     respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Error>>>>,
   ) -> Self {
     Self {
@@ -42,8 +39,7 @@ impl Context {
       path_info,
       local_addr,
       peer_addr,
-      head,
-      body,
+      request,
       response_head: HeaderMap::default(),
       buffer: Vec::default(),
       respond_to,
@@ -75,32 +71,32 @@ impl Context {
   }
 
   pub(crate) fn headers(&self) -> &HeaderMap {
-    &self.head.headers
+    self.request.headers()
   }
 
   pub(crate) fn version(&self) -> Version {
-    self.head.version
+    self.request.version()
   }
 
   pub(crate) fn body_mut(&mut self) -> &mut Bytes {
-    &mut self.body
+    self.request.body_mut()
   }
 
   pub(crate) fn send_response(
     &mut self,
     response: Response<UnsyncBoxBody<Bytes, Error>>,
-  ) -> Result<(), Response<UnsyncBoxBody<Bytes, Error>>> {
+  ) -> anyhow::Result<(), Response<UnsyncBoxBody<Bytes, Error>>> {
     self.respond_to.take().unwrap().send(response)
-    // self.respond_to.send(response)
   }
 
   pub(crate) fn init_globals(&self) -> anyhow::Result<()> {
     let mut sapi_globals = SapiGlobals::get_mut();
-    sapi_globals.request_info.request_method = CString::new(self.head.method.as_str())?.into_raw();
+    sapi_globals.request_info.request_method =
+      CString::new(self.request.method().as_str())?.into_raw();
 
     sapi_globals.request_info.query_string = self
-      .head
-      .uri
+      .request
+      .uri()
       .query()
       .and_then(|query| CString::new(query).ok())
       .map(|query| query.into_raw())
@@ -109,20 +105,24 @@ impl Context {
     let path_translated = format!("{}{}", self.root.to_str().unwrap(), self.script_name);
     sapi_globals.request_info.path_translated = CString::new(path_translated)?.into_raw();
 
-    sapi_globals.request_info.request_uri = CString::new(self.head.uri.to_string())?.into_raw();
+    sapi_globals.request_info.request_uri =
+      CString::new(self.request.uri().to_string())?.into_raw();
 
     sapi_globals.request_info.content_length = self
-      .head
-      .headers
+      .request
+      .headers()
       .typed_get::<ContentLength>()
       .map_or(0, |content_length| content_length.0.cast_signed());
 
-    sapi_globals.request_info.content_type =
-      self.head.headers.typed_get::<ContentType>().map_or(std::ptr::null_mut(), |content_type| {
+    sapi_globals.request_info.content_type = self
+      .request
+      .headers()
+      .typed_get::<ContentType>()
+      .map_or(std::ptr::null_mut(), |content_type| {
         CString::new(content_type.to_string()).unwrap().into_raw()
       });
 
-    if let Some(auth) = self.head.headers.get("Authorization") {
+    if let Some(auth) = self.request.headers().get("Authorization") {
       unsafe {
         php_handle_auth_data(CString::new(auth.as_bytes())?.into_raw());
       }

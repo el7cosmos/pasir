@@ -59,9 +59,6 @@ async fn main() -> anyhow::Result<()> {
   loop {
     tokio::select! {
       Ok((stream, _)) = listener.accept() => {
-        let local_addr = stream.local_addr()?;
-        let peer_addr = stream.peer_addr()?;
-
         let service = ServiceBuilder::new()
           .set_x_request_id(MakeRequestUuid)
           .layer(
@@ -72,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
           )
           .propagate_x_request_id()
           .layer(AddExtensionLayer::new(Arc::new(config.root())))
-          .layer(RouterLayer::new(PhpService::new(local_addr, peer_addr, php_pool.clone())))
+          .layer(RouterLayer::new(PhpService::new(stream.local_addr()?, stream.peer_addr()?, php_pool.clone())))
           .service(ServeDir::new(config.root()));
 
         let connection = Builder::new().serve_connection(TokioIo::new(stream), TowerToHyperService::new(service));

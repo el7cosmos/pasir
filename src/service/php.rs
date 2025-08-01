@@ -18,7 +18,6 @@ use tower::Service;
 pub(crate) struct PhpService {
   local_addr: SocketAddr,
   peer_addr: SocketAddr,
-  // sender: Sender<PhpJob>,
   sender: Sender<Context>,
 }
 
@@ -33,7 +32,6 @@ impl PhpService {
 }
 
 impl Service<Request<Incoming>> for PhpService {
-  // type Response = Response<Channel<Bytes, Error>>;
   type Response = Response<UnsyncBoxBody<Bytes, Error>>;
   type Error = Error;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -61,8 +59,7 @@ impl Service<Request<Incoming>> for PhpService {
         path_info,
         local_addr,
         peer_addr,
-        head,
-        bytes,
+        Request::from_parts(head, bytes),
         Some(resp_tx),
       );
 
