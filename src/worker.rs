@@ -1,12 +1,7 @@
 use crate::sapi::context::Context;
-use anyhow::Error;
-use bytes::Bytes;
 use ext_php_rs::embed::{ext_php_rs_sapi_per_thread_init, Embed};
 use ext_php_rs::ffi::{php_request_shutdown, php_request_startup, ZEND_RESULT_CODE_FAILURE};
 use ext_php_rs::zend::{try_catch_first, SapiGlobals};
-use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Full};
-use hyper::{Response, StatusCode};
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -21,12 +16,12 @@ pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<
     let rx_clone = Arc::clone(&shared_rx);
     thread::spawn(move || {
       loop {
-        let maybe_job = {
+        let context_rx = {
           let mut rx_lock = rx_clone.lock().unwrap();
           rx_lock.blocking_recv()
         };
 
-        match maybe_job {
+        match context_rx {
           Some(context) => {
             debug!("Serving php from worker {}", worker);
             unsafe {
@@ -49,31 +44,17 @@ pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<
             }
 
             let _tried = try_catch_first(|| {
-              let _script = Embed::run_script(script.clone());
+              let _script = Embed::run_script(script.as_path());
             });
 
             unsafe {
               php_request_shutdown(std::ptr::null_mut());
             }
 
-            let sapi_globals = SapiGlobals::get();
-            let sapi_headers = sapi_globals.sapi_headers();
-            if let Some(context) = Context::from_server_context(sapi_globals.server_context) {
-              let mut response = Response::new(UnsyncBoxBody::new(
-                Full::new(Bytes::from(context.buffer.to_owned())).map_err(Error::from),
-              ));
-
-              if sapi_headers.http_response_code.is_positive() {
-                *response.status_mut() =
-                  StatusCode::from_u16(sapi_headers.http_response_code.cast_unsigned() as u16)
-                    .unwrap_or_default();
+            if let Some(context) = Context::from_server_context(SapiGlobals::get().server_context) {
+              if !context.is_request_finished() && !context.finish_request() {
+                error!("finish request failed");
               }
-
-              *response.headers_mut() = context.response_head.clone();
-
-              if context.send_response(response).is_err() {
-                error!("send response failed");
-              };
             }
           }
           None => {

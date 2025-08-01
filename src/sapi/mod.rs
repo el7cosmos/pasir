@@ -1,15 +1,15 @@
 pub(crate) mod context;
-mod module;
 mod util;
 
 use crate::sapi::context::Context;
-use ext_php_rs::builders::SapiBuilder;
+use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
   php_handle_aborted_connection, php_module_shutdown, php_module_startup,
   sapi_header_struct, sapi_shutdown, sapi_startup, ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS,
 };
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::{SapiGlobals, SapiModule};
+use ext_php_rs::{php_function, php_module, wrap_function};
 use headers::{HeaderMapExt, Host};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::Uri;
@@ -28,7 +28,7 @@ unsafe impl Sync for Sapi {}
 
 impl Sapi {
   pub(crate) fn new() -> Self {
-    let sapi = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
+    let builder = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
       .startup_function(startup)
       .shutdown_function(shutdown)
       .ub_write_function(ub_write)
@@ -38,7 +38,7 @@ impl Sapi {
       .register_server_variables_function(register_server_variables)
       .log_message_function(log_message)
       .get_request_time_function(get_request_time);
-    Self(sapi.build().unwrap().into_raw())
+    Self(builder.build().unwrap().into_raw())
   }
 
   pub(crate) fn startup(self) -> Result<(), ()> {
@@ -66,7 +66,7 @@ impl Sapi {
 }
 
 extern "C" fn startup(sapi: *mut SapiModule) -> c_int {
-  unsafe { php_module_startup(sapi, std::ptr::null_mut()) }
+  unsafe { php_module_startup(sapi, get_module()) }
 }
 
 extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
@@ -84,10 +84,18 @@ extern "C" fn ub_write(str: *const i8, str_length: usize) -> usize {
       }
       0
     }
-    Some(context) => {
-      context.buffer.extend_from_slice(char);
-      str_length
-    }
+    Some(context) => match context.is_request_finished() {
+      true => {
+        unsafe {
+          php_handle_aborted_connection();
+        }
+        0
+      }
+      false => {
+        context.buffer.extend_from_slice(char);
+        str_length
+      }
+    },
   }
 }
 
@@ -101,13 +109,12 @@ extern "C" fn send_header(header: *mut sapi_header_struct, server_context: *mut 
     }
 
     if let Some(context) = Context::from_server_context(server_context) {
-      if let Ok(header_str) = CStr::from_ptr((*header).header.cast::<i8>().cast_const()).to_str() {
-        if let Some((name, value)) = util::parse_header(header_str) {
-          context.response_head.append(
-            HeaderName::from_str(name.as_str()).unwrap(),
-            HeaderValue::from_str(value.as_str()).unwrap(),
-          );
-        }
+      let header_str = CStr::from_ptr((*header).header.cast::<i8>().cast_const()).to_string_lossy();
+      if let Some((name, value)) = util::parse_header(header_str.to_string()) {
+        context.response_head.append(
+          HeaderName::from_str(name.as_str()).unwrap(),
+          HeaderValue::from_str(value.as_str()).unwrap(),
+        );
       }
     }
   }
@@ -210,7 +217,7 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
 extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
   unsafe {
-    let error_message = CStr::from_ptr(message).to_str().unwrap();
+    let error_message = CStr::from_ptr(message).to_string_lossy();
     match syslog_type_int {
       0..=3 => error!("{}", error_message),
       4 => warn!("{}", error_message),
@@ -227,4 +234,17 @@ extern "C" fn get_request_time(time: *mut f64) -> c_int {
     time.write(SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64());
   }
   ZEND_RESULT_CODE_SUCCESS as c_int
+}
+
+#[php_function]
+fn fastcgi_finish_request() -> bool {
+  if let Some(context) = Context::from_server_context(SapiGlobals::get().server_context) {
+    return context.finish_request();
+  }
+  false
+}
+
+#[php_module]
+pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
+  module.function(wrap_function!(fastcgi_finish_request))
 }

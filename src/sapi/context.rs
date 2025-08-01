@@ -1,7 +1,7 @@
 use crate::service::php::PhpRoute;
 use anyhow::Error;
 use bytes::Bytes;
-use ext_php_rs::ffi::php_handle_auth_data;
+use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
 use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
@@ -22,6 +22,7 @@ pub(crate) struct Context {
   pub(crate) response_head: HeaderMap,
   pub(crate) buffer: Vec<u8>,
   respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Error>>>>,
+  request_finished: bool,
 }
 
 impl Context {
@@ -42,6 +43,7 @@ impl Context {
       response_head: HeaderMap::default(),
       buffer: Vec::default(),
       respond_to,
+      request_finished: false,
     }
   }
 
@@ -75,13 +77,6 @@ impl Context {
 
   pub(crate) fn body_mut(&mut self) -> &mut Bytes {
     self.request.body_mut()
-  }
-
-  pub(crate) fn send_response(
-    &mut self,
-    response: Response<UnsyncBoxBody<Bytes, Error>>,
-  ) -> anyhow::Result<(), Response<UnsyncBoxBody<Bytes, Error>>> {
-    self.respond_to.take().unwrap().send(response)
   }
 
   pub(crate) fn init_globals(&self) -> anyhow::Result<()> {
@@ -124,5 +119,39 @@ impl Context {
     }
 
     Ok(())
+  }
+
+  pub(crate) fn is_request_finished(&self) -> bool {
+    self.request_finished
+  }
+
+  pub(crate) fn finish_request(&mut self) -> bool {
+    if self.request_finished {
+      return false;
+    }
+
+    if let Some(sender) = self.respond_to.take() {
+      unsafe {
+        php_output_end_all();
+      }
+
+      let rc = SapiGlobals::get().sapi_headers().http_response_code;
+      let builder = Response::builder().status(match rc.is_positive() {
+        true => StatusCode::from_u16(rc.cast_unsigned() as u16).unwrap_or_default(),
+        false => StatusCode::default(),
+      });
+
+      let mut response = builder
+        .body(UnsyncBoxBody::new(Full::new(Bytes::from(self.buffer.clone())).map_err(Error::from)))
+        .unwrap();
+      *response.headers_mut() = self.response_head.clone();
+
+      if sender.send(response).is_ok() {
+        self.request_finished = true;
+        return true;
+      }
+    }
+
+    false
   }
 }

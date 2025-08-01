@@ -8,4 +8,4 @@ linker = "rust-lld"
 linker = "rust-lld"
 
 [env]
-EXT_PHP_RS_ALLOWED_BINDINGS = "php_register_variable,php_handle_auth_data,php_handle_aborted_connection"
+EXT_PHP_RS_ALLOWED_BINDINGS = "php_register_variable,php_handle_auth_data,php_handle_aborted_connection,php_output_end_all"

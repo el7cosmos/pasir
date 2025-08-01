@@ -2,7 +2,7 @@ use ext_php_rs::ffi::php_register_variable;
 use ext_php_rs::types::Zval;
 use std::ffi::CString;
 
-pub(crate) fn parse_header(header: &str) -> Option<(String, String)> {
+pub(crate) fn parse_header(header: String) -> Option<(String, String)> {
   if let Some(idx) = header.find(':') {
     let (name, value) = header.split_at(idx);
     let value = value.trim_start_matches(':').trim();
