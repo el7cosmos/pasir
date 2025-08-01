@@ -7,7 +7,7 @@ use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Request, Response, StatusCode, Version};
-use std::ffi::{c_void, CString};
+use std::ffi::{CString, c_void};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

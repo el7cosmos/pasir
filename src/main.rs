@@ -20,12 +20,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
+use tower_http::ServiceBuilderExt;
 use tower_http::add_extension::AddExtensionLayer;
 use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
-use tower_http::ServiceBuilderExt;
-use tracing::{error, info, Level};
+use tracing::{Level, error, info};
 use tracing_subscriber::EnvFilter;
 
 async fn shutdown_signal() {

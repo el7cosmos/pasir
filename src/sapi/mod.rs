@@ -4,16 +4,16 @@ mod util;
 use crate::sapi::context::Context;
 use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
-  php_handle_aborted_connection, php_module_shutdown, php_module_startup,
-  sapi_header_struct, sapi_shutdown, sapi_startup, ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS,
+  ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_handle_aborted_connection,
+  php_module_shutdown, php_module_startup, sapi_header_struct, sapi_shutdown, sapi_startup,
 };
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::{SapiGlobals, SapiModule};
 use ext_php_rs::{php_function, php_module, wrap_function};
 use headers::{HeaderMapExt, Host};
-use hyper::header::{HeaderName, HeaderValue};
 use hyper::Uri;
-use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use hyper::header::{HeaderName, HeaderValue};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ops::Sub;
 use std::str::FromStr;
 use std::time::SystemTime;

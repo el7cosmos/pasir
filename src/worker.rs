@@ -1,7 +1,7 @@
 use crate::sapi::context::Context;
-use ext_php_rs::embed::{ext_php_rs_sapi_per_thread_init, Embed};
-use ext_php_rs::ffi::{php_request_shutdown, php_request_startup, ZEND_RESULT_CODE_FAILURE};
-use ext_php_rs::zend::{try_catch_first, SapiGlobals};
+use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
+use ext_php_rs::ffi::{ZEND_RESULT_CODE_FAILURE, php_request_shutdown, php_request_startup};
+use ext_php_rs::zend::{SapiGlobals, try_catch_first};
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::thread;

@@ -1,8 +1,8 @@
 use crate::service::php::PhpService;
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use bytes::Bytes;
-use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::BodyExt;
+use http_body_util::combinators::UnsyncBoxBody;
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use regex::Regex;
