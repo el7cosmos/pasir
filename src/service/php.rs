@@ -50,13 +50,12 @@ impl Service<Request<Incoming>> for PhpService {
       let (head, body) = request.into_parts();
       let bytes = body.collect().await?.to_bytes();
       let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-      let (script_name, path_info) = resolve_php_index(root.as_path(), head.uri.path());
+      let route = resolve_php_index(root.as_path(), head.uri.path());
       let error_response = Response::internal_server_error(UnsyncBoxBody::default());
 
       let context = Context::new(
         root,
-        script_name,
-        path_info,
+        route,
         local_addr,
         peer_addr,
         Request::from_parts(head, bytes),
@@ -75,9 +74,30 @@ impl Service<Request<Incoming>> for PhpService {
   }
 }
 
-/// Resolves a request URI to the appropriate index.php file and path info
-/// Returns (index_php_path, path_info)
-pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> (String, Option<String>) {
+/// Represents a resolved PHP route
+#[derive(Debug, Clone, PartialEq)]
+pub struct PhpRoute {
+  script_name: String,
+  path_info: Option<String>,
+}
+
+impl PhpRoute {
+  pub(crate) fn new(script_name: String, path_info: Option<String>) -> Self {
+    Self { script_name, path_info }
+  }
+
+  pub(crate) fn script_name(&self) -> &str {
+    &self.script_name
+  }
+
+  pub(crate) fn path_info(&self) -> Option<&str> {
+    self.path_info.as_deref()
+  }
+}
+
+/// Resolves a request URI to the appropriate PHP file and path info
+/// Returns PhpRoute with script_name and path_info
+pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> PhpRoute {
   // Clean the request URI (remove query string, normalize slashes)
   let clean_uri = request_uri.split('?').next().unwrap_or(request_uri);
   let clean_uri = clean_uri.trim_start_matches('/').trim_end_matches('/');
@@ -89,18 +109,14 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> (String, Op
     clean_uri.split('/').filter(|s| !s.is_empty()).collect()
   };
 
-  // Check if the URI explicitly contains index.php
-  if let Some(index_php_pos) = segments.iter().position(|&s| s == "index.php") {
-    // URI contains index.php explicitly
-    let script_path_segments = &segments[0..index_php_pos];
-    let path_info_segments = &segments[index_php_pos + 1..];
+  // Check if the URI explicitly contains a .php file
+  if let Some(php_pos) = segments.iter().position(|&s| s.ends_with(".php")) {
+    // URI contains a PHP file explicitly
+    let script_path_segments = &segments[0..php_pos + 1]; // Include the .php file
+    let path_info_segments = &segments[php_pos + 1..];
 
     // Build the script path
-    let script_path = if script_path_segments.is_empty() {
-      "/index.php".to_string()
-    } else {
-      format!("/{}/index.php", script_path_segments.join("/"))
-    };
+    let script_path = format!("/{}", script_path_segments.join("/"));
 
     // Build path info
     let path_info = if path_info_segments.is_empty() {
@@ -109,15 +125,14 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> (String, Op
       Some(format!("/{}", path_info_segments.join("/")))
     };
 
-    // Verify the index.php file actually exists
+    // Verify the PHP file actually exists
     let mut file_path = document_root.to_path_buf();
     for segment in script_path_segments {
       file_path.push(segment);
     }
-    file_path.push("index.php");
 
     if file_path.exists() && file_path.is_file() {
-      return (script_path, path_info);
+      return PhpRoute::new(script_path, path_info);
     }
   }
 
@@ -148,7 +163,7 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> (String, Op
         Some(format!("/{}", remaining_segments.join("/")))
       };
 
-      return (relative_index_path, path_info);
+      return PhpRoute::new(relative_index_path, path_info);
     }
   }
 
@@ -156,10 +171,10 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> (String, Op
   let root_index = document_root.join("index.php");
   if root_index.exists() && root_index.is_file() {
     let path_info = if clean_uri.is_empty() { None } else { Some(format!("/{clean_uri}")) };
-    ("/index.php".to_string(), path_info)
+    PhpRoute::new("/index.php".to_string(), path_info)
   } else {
     // No index.php found anywhere
-    ("/index.php".to_string(), Some(format!("/{clean_uri}")))
+    PhpRoute::new("/index.php".to_string(), Some(format!("/{clean_uri}")))
   }
 }
 
@@ -176,24 +191,37 @@ mod tests {
     fs::create_dir_all(&temp_dir).unwrap();
     fs::create_dir_all(temp_dir.join("some_path")).unwrap();
 
-    // Create index.php files
+    // Create index.php files and a status.php file
     fs::write(temp_dir.join("index.php"), "<?php echo 'root'; ?>").unwrap();
     fs::write(temp_dir.join("some_path/index.php"), "<?php echo 'some_path'; ?>").unwrap();
+    fs::write(temp_dir.join("some_path/status.php"), "<?php echo 'status'; ?>").unwrap();
 
     // Test cases
     let test_cases = vec![
-      ("/", "/index.php", None),
-      ("/some_path/admin", "/some_path/index.php", Some("/admin".to_string())),
-      ("/some_other_path/admin", "/index.php", Some("/some_other_path/admin".to_string())),
-      ("/some_path/", "/some_path/index.php", None),
-      ("/some_path", "/some_path/index.php", None),
-      ("/some_path/index.php/admin", "/some_path/index.php", Some("/admin".to_string())),
+      ("/", PhpRoute::new("/index.php".to_string(), None)),
+      (
+        "/some_path/admin",
+        PhpRoute::new("/some_path/index.php".to_string(), Some("/admin".to_string())),
+      ),
+      (
+        "/some_other_path/admin",
+        PhpRoute::new("/index.php".to_string(), Some("/some_other_path/admin".to_string())),
+      ),
+      ("/some_path/", PhpRoute::new("/some_path/index.php".to_string(), None)),
+      ("/some_path", PhpRoute::new("/some_path/index.php".to_string(), None)),
+      (
+        "/some_path/index.php/admin",
+        PhpRoute::new("/some_path/index.php".to_string(), Some("/admin".to_string())),
+      ),
+      (
+        "/some_path/status.php/admin",
+        PhpRoute::new("/some_path/status.php".to_string(), Some("/admin".to_string())),
+      ),
     ];
 
-    for (uri, expected_script, expected_path_info) in test_cases {
-      let (script, path_info) = resolve_php_index(&temp_dir, uri);
-      assert_eq!(script, expected_script, "Failed for URI: {}", uri);
-      assert_eq!(path_info, expected_path_info, "Failed for URI: {}", uri);
+    for (uri, expected_route) in test_cases {
+      let route = resolve_php_index(&temp_dir, uri);
+      assert_eq!(route, expected_route, "Failed for URI: {}", uri);
     }
 
     // Clean up

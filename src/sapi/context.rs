@@ -1,10 +1,12 @@
+use crate::service::php::PhpRoute;
 use anyhow::Error;
 use bytes::Bytes;
 use ext_php_rs::ffi::php_handle_auth_data;
 use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
-use hyper::{HeaderMap, Request, Response, Version};
+use http_body_util::{BodyExt, Full};
+use hyper::{HeaderMap, Request, Response, StatusCode, Version};
 use std::ffi::{c_void, CString};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -13,8 +15,7 @@ use tokio::sync::oneshot::Sender;
 
 pub(crate) struct Context {
   pub(crate) root: Arc<PathBuf>,
-  script_name: String,
-  path_info: Option<String>,
+  route: PhpRoute,
   local_addr: SocketAddr,
   peer_addr: SocketAddr,
   request: Request<Bytes>,
@@ -26,8 +27,7 @@ pub(crate) struct Context {
 impl Context {
   pub(crate) fn new(
     root: Arc<PathBuf>,
-    script_name: String,
-    path_info: Option<String>,
+    route: PhpRoute,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     request: Request<Bytes>,
@@ -35,8 +35,7 @@ impl Context {
   ) -> Self {
     Self {
       root,
-      script_name,
-      path_info,
+      route,
       local_addr,
       peer_addr,
       request,
@@ -54,12 +53,8 @@ impl Context {
     self.root.as_path()
   }
 
-  pub(crate) fn script_name(&self) -> &str {
-    &self.script_name
-  }
-
-  pub(crate) fn path_info(&self) -> Option<&str> {
-    self.path_info.as_deref()
+  pub(crate) fn route(&self) -> &PhpRoute {
+    &self.route
   }
 
   pub(crate) fn local_addr(&self) -> SocketAddr {
@@ -102,7 +97,7 @@ impl Context {
       .map(|query| query.into_raw())
       .unwrap_or_else(std::ptr::null_mut);
 
-    let path_translated = format!("{}{}", self.root.to_str().unwrap(), self.script_name);
+    let path_translated = format!("{}{}", self.root.to_str().unwrap(), self.route.script_name());
     sapi_globals.request_info.path_translated = CString::new(path_translated)?.into_raw();
 
     sapi_globals.request_info.request_uri =

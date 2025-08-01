@@ -38,7 +38,7 @@ pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<
               break;
             }
 
-            let script = context.root().join(context.script_name().trim_start_matches("/"));
+            let script = context.root().join(context.route().script_name().trim_start_matches("/"));
 
             let context_raw = Box::into_raw(Box::new(context));
             SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();

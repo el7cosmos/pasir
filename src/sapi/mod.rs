@@ -175,8 +175,8 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
   if let Some(context) = Context::from_server_context(sapi_globals.server_context) {
     let root = context.root().to_str().unwrap_or_default();
-    let script_name = context.script_name();
-    let path_info = context.path_info();
+    let script_name = context.route().script_name();
+    let path_info = context.route().path_info();
     let php_self = format!("{}{}", script_name, path_info.unwrap_or_default());
 
     register_variable("PHP_SELF", php_self, vars);
