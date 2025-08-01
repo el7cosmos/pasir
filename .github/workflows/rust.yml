@@ -1,0 +1,44 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+        php: [ '8.1', '8.2', '8.3', '8.4' ]
+        include:
+          - os: macos-latest
+            library_path: /opt/homebrew/lib
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-${{ runner.php }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: shivammathur/setup-php@v2
+        env:
+          phpts: ts
+      - if: ${{ matrix.library_path }}
+        run: echo "LIBRARY_PATH=${{ matrix.library_path }}" >> "$GITHUB_ENV"
+      - run: cargo verify-project
+      - run: cargo fmt --check
+      - run: cargo clippy
+      - run: cargo build
+      - run: cargo test
