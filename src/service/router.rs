@@ -1,6 +1,6 @@
 use crate::service::php::PhpService;
 use anyhow::{Error, anyhow};
-use bytes::Bytes;
+use bytes::BytesMut;
 use http_body_util::BodyExt;
 use http_body_util::combinators::UnsyncBoxBody;
 use hyper::body::Incoming;
@@ -24,7 +24,7 @@ impl RouterService {
 }
 
 impl Service<Request<Incoming>> for RouterService {
-  type Response = Response<UnsyncBoxBody<Bytes, Error>>;
+  type Response = Response<UnsyncBoxBody<BytesMut, Error>>;
   type Error = Error;
   type Future = Pin<Box<dyn Future<Output = anyhow::Result<Self::Response, Self::Error>> + Send>>;
 
@@ -50,7 +50,10 @@ impl Service<Request<Incoming>> for RouterService {
           let (head, body) = response.into_parts();
           Ok(Response::from_parts(
             head,
-            body.map_err(|error| anyhow!(error.to_string())).boxed_unsync(),
+            body
+              .map_frame(|frame| frame.map_data(BytesMut::from))
+              .map_err(|error| anyhow!(error.to_string()))
+              .boxed_unsync(),
           ))
         }
         Err(error) => Err(anyhow!(error.to_string())),

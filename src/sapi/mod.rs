@@ -2,6 +2,7 @@ pub(crate) mod context;
 mod util;
 
 use crate::sapi::context::Context;
+use bytes::BufMut;
 use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
   ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_handle_aborted_connection,
@@ -74,9 +75,7 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
   ZEND_RESULT_CODE_SUCCESS as c_int
 }
 
-extern "C" fn ub_write(str: *const i8, str_length: usize) -> usize {
-  let char = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), str_length) };
-
+extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
   match Context::from_server_context(SapiGlobals::get().server_context) {
     None => {
       unsafe {
@@ -92,7 +91,8 @@ extern "C" fn ub_write(str: *const i8, str_length: usize) -> usize {
         0
       }
       false => {
-        context.buffer.extend_from_slice(char);
+        let char = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), str_length) };
+        context.buffer().put_slice(char);
         str_length
       }
     },
@@ -109,7 +109,7 @@ extern "C" fn send_header(header: *mut sapi_header_struct, server_context: *mut 
     }
 
     if let Some(context) = Context::from_server_context(server_context) {
-      let header_str = CStr::from_ptr((*header).header.cast::<i8>().cast_const()).to_string_lossy();
+      let header_str = CStr::from_ptr((*header).header.cast_const()).to_string_lossy();
       if let Some((name, value)) = util::parse_header(header_str.to_string()) {
         context.response_head.append(
           HeaderName::from_str(name.as_str()).unwrap(),

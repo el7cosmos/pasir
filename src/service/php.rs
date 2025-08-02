@@ -1,7 +1,7 @@
 use crate::response::InternalServerError;
 use crate::sapi::context::Context;
 use anyhow::Error;
-use bytes::Bytes;
+use bytes::BytesMut;
 use http_body_util::BodyExt;
 use http_body_util::combinators::UnsyncBoxBody;
 use hyper::body::Incoming;
@@ -32,7 +32,7 @@ impl PhpService {
 }
 
 impl Service<Request<Incoming>> for PhpService {
-  type Response = Response<UnsyncBoxBody<Bytes, Error>>;
+  type Response = Response<UnsyncBoxBody<BytesMut, Error>>;
   type Error = Error;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 

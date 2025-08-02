@@ -1,6 +1,6 @@
 use crate::service::php::PhpRoute;
 use anyhow::Error;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
 use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
@@ -20,8 +20,8 @@ pub(crate) struct Context {
   peer_addr: SocketAddr,
   request: Request<Bytes>,
   pub(crate) response_head: HeaderMap,
-  pub(crate) buffer: Vec<u8>,
-  respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Error>>>>,
+  buffer: BytesMut,
+  respond_to: Option<Sender<Response<UnsyncBoxBody<BytesMut, Error>>>>,
   request_finished: bool,
 }
 
@@ -32,7 +32,7 @@ impl Context {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     request: Request<Bytes>,
-    respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Error>>>>,
+    respond_to: Option<Sender<Response<UnsyncBoxBody<BytesMut, Error>>>>,
   ) -> Self {
     Self {
       root,
@@ -41,7 +41,7 @@ impl Context {
       peer_addr,
       request,
       response_head: HeaderMap::default(),
-      buffer: Vec::default(),
+      buffer: BytesMut::default(),
       respond_to,
       request_finished: false,
     }
@@ -77,6 +77,10 @@ impl Context {
 
   pub(crate) fn body_mut(&mut self) -> &mut Bytes {
     self.request.body_mut()
+  }
+
+  pub(crate) fn buffer(&mut self) -> &mut BytesMut {
+    &mut self.buffer
   }
 
   pub(crate) fn init_globals(&self) -> anyhow::Result<()> {
@@ -142,7 +146,7 @@ impl Context {
       });
 
       let mut response = builder
-        .body(UnsyncBoxBody::new(Full::new(Bytes::from(self.buffer.clone())).map_err(Error::from)))
+        .body(UnsyncBoxBody::new(Full::new(self.buffer.clone()).map_err(Error::from)))
         .unwrap();
       *response.headers_mut() = self.response_head.clone();
 
