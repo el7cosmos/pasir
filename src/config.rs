@@ -2,15 +2,19 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default, Parser)]
+#[command(version, about, author)]
 pub(crate) struct Config {
-  #[arg(short, long, default_value = ".", value_parser = validate_root)]
+  #[arg(
+    default_value_os_t = std::env::current_dir().unwrap_or(PathBuf::from(".")),
+    value_parser = validate_root,
+  )]
   root: PathBuf,
-  #[arg(short, long, default_value = "0.0.0.0")]
+  #[arg(short, long, env = "PASIR_ADDRESS", default_value = "0.0.0.0")]
   address: String,
-  #[arg(short, long, required = true)]
+  #[arg(short, long, env = "PASIR_PORT", required = true)]
   port: u16,
-  #[arg(short, long)]
-  workers: Option<usize>,
+  #[arg(short, long, env = "PASIR_WORKERS", default_value_t = num_cpus::get_physical())]
+  workers: usize,
 }
 
 impl Config {
@@ -26,7 +30,7 @@ impl Config {
     self.port
   }
 
-  pub(crate) fn workers(&self) -> Option<usize> {
+  pub(crate) fn workers(&self) -> usize {
     self.workers
   }
 }

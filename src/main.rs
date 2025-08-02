@@ -36,7 +36,7 @@ async fn shutdown_signal() {
 async fn main() -> anyhow::Result<()> {
   let config = Config::parse();
   let listener = TcpListener::bind((config.address(), config.port())).await?;
-  let php_pool = start_php_worker_pool(config.workers().unwrap_or(num_cpus::get_physical()))?;
+  let php_pool = start_php_worker_pool(config.workers())?;
   // the graceful watcher
   let graceful = GracefulShutdown::new();
   // when this signal completes, start shutdown
