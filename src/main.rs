@@ -6,8 +6,8 @@ mod worker;
 
 use crate::config::Config;
 use crate::sapi::Sapi;
-use crate::service::php::PhpService;
 use crate::service::router::RouterLayer;
+use crate::service::serve_php::ServePhp;
 use crate::worker::start_php_worker_pool;
 use anyhow::bail;
 use clap::Parser;
@@ -21,7 +21,6 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::ServiceBuilderExt;
-use tower_http::add_extension::AddExtensionLayer;
 use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
@@ -59,6 +58,7 @@ async fn main() -> anyhow::Result<()> {
   loop {
     tokio::select! {
       Ok((stream, _)) = listener.accept() => {
+        let php_service = ServePhp::new(stream.local_addr()?, stream.peer_addr()?, php_pool.clone());
         let service = ServiceBuilder::new()
           .set_x_request_id(MakeRequestUuid)
           .layer(
@@ -68,9 +68,9 @@ async fn main() -> anyhow::Result<()> {
               .on_response(DefaultOnResponse::new().level(Level::INFO).include_headers(true)),
           )
           .propagate_x_request_id()
-          .layer(AddExtensionLayer::new(Arc::new(config.root())))
-          .layer(RouterLayer::new(PhpService::new(stream.local_addr()?, stream.peer_addr()?, php_pool.clone())))
-          .service(ServeDir::new(config.root()));
+          .add_extension(Arc::new(config.root()))
+          .layer(RouterLayer::new(php_service.clone()))
+          .service(ServeDir::new(config.root()).fallback(php_service).precompressed_gzip());
 
         let connection = Builder::new().serve_connection(TokioIo::new(stream), TowerToHyperService::new(service));
         let future = graceful.watch(connection);

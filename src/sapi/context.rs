@@ -1,5 +1,4 @@
-use crate::service::php::PhpRoute;
-use anyhow::Error;
+use crate::service::serve_php::PhpRoute;
 use bytes::{Bytes, BytesMut};
 use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
 use ext_php_rs::zend::SapiGlobals;
@@ -7,6 +6,7 @@ use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::{HeaderMap, Request, Response, StatusCode, Version};
+use std::convert::Infallible;
 use std::ffi::{CString, c_void};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ pub(crate) struct Context {
   request: Request<Bytes>,
   pub(crate) response_head: HeaderMap,
   buffer: BytesMut,
-  respond_to: Option<Sender<Response<UnsyncBoxBody<BytesMut, Error>>>>,
+  respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Infallible>>>>,
   request_finished: bool,
 }
 
@@ -32,7 +32,7 @@ impl Context {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     request: Request<Bytes>,
-    respond_to: Option<Sender<Response<UnsyncBoxBody<BytesMut, Error>>>>,
+    respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Infallible>>>>,
   ) -> Self {
     Self {
       root,
@@ -145,9 +145,8 @@ impl Context {
         false => StatusCode::default(),
       });
 
-      let mut response = builder
-        .body(UnsyncBoxBody::new(Full::new(self.buffer.clone()).map_err(Error::from)))
-        .unwrap();
+      let mut response =
+        builder.body(Full::new(Bytes::from(self.buffer.clone())).boxed_unsync()).unwrap();
       *response.headers_mut() = self.response_head.clone();
 
       if sender.send(response).is_ok() {

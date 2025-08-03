@@ -1,59 +1,64 @@
 use crate::response::InternalServerError;
-use crate::sapi::context::Context;
-use anyhow::Error;
-use bytes::BytesMut;
-use http_body_util::BodyExt;
+use bytes::Bytes;
+use http_body_util::Full;
 use http_body_util::combinators::UnsyncBoxBody;
+use http_body_util::{BodyExt, Empty};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Poll;
+use std::task::{Context, Poll};
 use tokio::sync::mpsc::Sender;
 use tower::Service;
 
 #[derive(Clone)]
-pub(crate) struct PhpService {
+pub(crate) struct ServePhp {
   local_addr: SocketAddr,
   peer_addr: SocketAddr,
-  sender: Sender<Context>,
+  sender: Sender<crate::sapi::context::Context>,
 }
 
-impl PhpService {
+impl ServePhp {
   pub(crate) fn new(
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
-    sender: Sender<Context>,
+    sender: Sender<crate::sapi::context::Context>,
   ) -> Self {
     Self { local_addr, peer_addr, sender }
   }
 }
 
-impl Service<Request<Incoming>> for PhpService {
-  type Response = Response<UnsyncBoxBody<BytesMut, Error>>;
-  type Error = Error;
+impl Service<Request<Incoming>> for ServePhp {
+  type Response = Response<UnsyncBoxBody<Bytes, Infallible>>;
+  type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-  fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+  fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     Poll::Ready(Ok(()))
   }
 
-  fn call(&mut self, request: Request<Incoming>) -> Self::Future {
-    let root = request.extensions().get::<Arc<PathBuf>>().unwrap().clone();
+  fn call(&mut self, req: Request<Incoming>) -> Self::Future {
+    let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let local_addr = self.local_addr;
     let peer_addr = self.peer_addr;
     let sender = self.sender.clone();
 
     Box::pin(async move {
-      let (head, body) = request.into_parts();
-      let bytes = body.collect().await?.to_bytes();
+      let (head, body) = req.into_parts();
+      let bytes = match body.collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(_) => {
+          return Response::internal_server_error(Empty::default().boxed_unsync());
+        }
+      };
       let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
       let route = resolve_php_index(root.as_path(), head.uri.path());
-      let error_response = Response::internal_server_error(UnsyncBoxBody::default());
+      let error_response = Response::internal_server_error(Full::default().boxed_unsync());
 
-      let context = Context::new(
+      let context = crate::sapi::context::Context::new(
         root,
         route,
         local_addr,
@@ -63,12 +68,12 @@ impl Service<Request<Incoming>> for PhpService {
       );
 
       if sender.send(context).await.is_err() {
-        return Ok(error_response.unwrap());
+        return error_response;
       }
 
       match resp_rx.await {
         Ok(response) => Ok(response),
-        Err(_) => Ok(error_response.unwrap()),
+        Err(_) => error_response,
       }
     })
   }
