@@ -1,33 +1,25 @@
-use crate::response::InternalServerError;
+use crate::Stream;
+use crate::sapi::context::Context;
+use crate::util::response_ext::ResponseExt;
 use bytes::Bytes;
-use http_body_util::Full;
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use std::convert::Infallible;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::Poll;
 use tokio::sync::mpsc::Sender;
 use tower::Service;
 
 #[derive(Clone)]
-pub(crate) struct ServePhp {
-  local_addr: SocketAddr,
-  peer_addr: SocketAddr,
-  sender: Sender<crate::sapi::context::Context>,
-}
+pub(crate) struct ServePhp;
 
 impl ServePhp {
-  pub(crate) fn new(
-    local_addr: SocketAddr,
-    peer_addr: SocketAddr,
-    sender: Sender<crate::sapi::context::Context>,
-  ) -> Self {
-    Self { local_addr, peer_addr, sender }
+  pub(crate) fn new() -> Self {
+    Self {}
   }
 }
 
@@ -36,36 +28,27 @@ impl Service<Request<Incoming>> for ServePhp {
   type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-  fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+  fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
     Poll::Ready(Ok(()))
   }
 
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
-    let local_addr = self.local_addr;
-    let peer_addr = self.peer_addr;
-    let sender = self.sender.clone();
+    let stream = req.extensions().get::<Stream>().unwrap().clone();
+    let sender = req.extensions().get::<Sender<Context>>().unwrap().clone();
+    let error_response = Response::internal_server_error(Empty::default().boxed_unsync());
 
     Box::pin(async move {
       let (head, body) = req.into_parts();
       let bytes = match body.collect().await {
         Ok(collected) => collected.to_bytes(),
-        Err(_) => {
-          return Response::internal_server_error(Empty::default().boxed_unsync());
-        }
+        Err(_) => return error_response,
       };
       let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
       let route = resolve_php_index(root.as_path(), head.uri.path());
-      let error_response = Response::internal_server_error(Full::default().boxed_unsync());
 
-      let context = crate::sapi::context::Context::new(
-        root,
-        route,
-        local_addr,
-        peer_addr,
-        Request::from_parts(head, bytes),
-        Some(resp_tx),
-      );
+      let context =
+        Context::new(root, route, stream, Request::from_parts(head, bytes), Some(resp_tx));
 
       if sender.send(context).await.is_err() {
         return error_response;

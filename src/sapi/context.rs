@@ -1,3 +1,4 @@
+use crate::Stream;
 use crate::service::serve_php::PhpRoute;
 use bytes::{Bytes, BytesMut};
 use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
@@ -16,8 +17,7 @@ use tokio::sync::oneshot::Sender;
 pub(crate) struct Context {
   pub(crate) root: Arc<PathBuf>,
   route: PhpRoute,
-  local_addr: SocketAddr,
-  peer_addr: SocketAddr,
+  stream: Stream,
   request: Request<Bytes>,
   pub(crate) response_head: HeaderMap,
   buffer: BytesMut,
@@ -29,16 +29,14 @@ impl Context {
   pub(crate) fn new(
     root: Arc<PathBuf>,
     route: PhpRoute,
-    local_addr: SocketAddr,
-    peer_addr: SocketAddr,
+    stream: Stream,
     request: Request<Bytes>,
     respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Infallible>>>>,
   ) -> Self {
     Self {
       root,
       route,
-      local_addr,
-      peer_addr,
+      stream,
       request,
       response_head: HeaderMap::default(),
       buffer: BytesMut::default(),
@@ -60,11 +58,11 @@ impl Context {
   }
 
   pub(crate) fn local_addr(&self) -> SocketAddr {
-    self.local_addr
+    self.stream.local_addr
   }
 
   pub(crate) fn peer_addr(&self) -> SocketAddr {
-    self.peer_addr
+    self.stream.peer_addr
   }
 
   pub(crate) fn headers(&self) -> &HeaderMap {

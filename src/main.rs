@@ -1,11 +1,12 @@
 mod config;
-mod response;
 mod sapi;
 mod service;
+mod util;
 mod worker;
 
 use crate::config::Config;
 use crate::sapi::Sapi;
+use crate::service::combined_log_format::CombinedLogFormat;
 use crate::service::router::RouterLayer;
 use crate::service::serve_php::ServePhp;
 use crate::worker::start_php_worker_pool;
@@ -16,6 +17,7 @@ use hyper::server::conn::http1::Builder;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::graceful::GracefulShutdown;
 use hyper_util::service::TowerToHyperService;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -23,9 +25,20 @@ use tower::ServiceBuilder;
 use tower_http::ServiceBuilderExt;
 use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
-use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
-use tracing::{Level, error, info};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+
+#[derive(Clone)]
+struct Stream {
+  local_addr: SocketAddr,
+  peer_addr: SocketAddr,
+}
+
+impl Stream {
+  fn new(local_addr: SocketAddr, peer_addr: SocketAddr) -> Self {
+    Self { local_addr, peer_addr }
+  }
+}
 
 async fn shutdown_signal() {
   tokio::signal::ctrl_c().await.expect("Failed to install CTRL+C handler");
@@ -57,18 +70,15 @@ async fn main() -> anyhow::Result<()> {
 
   loop {
     tokio::select! {
-      Ok((stream, _)) = listener.accept() => {
-        let php_service = ServePhp::new(stream.local_addr()?, stream.peer_addr()?, php_pool.clone());
+      Ok((stream, socket)) = listener.accept() => {
+        let php_service = ServePhp::new();
         let service = ServiceBuilder::new()
-          .set_x_request_id(MakeRequestUuid)
-          .layer(
-            TraceLayer::new_for_http()
-              .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-              .on_request(DefaultOnRequest::new().level(Level::INFO))
-              .on_response(DefaultOnResponse::new().level(Level::INFO).include_headers(true)),
-          )
-          .propagate_x_request_id()
           .add_extension(Arc::new(config.root()))
+          .add_extension(php_pool.clone())
+          .add_extension(Stream::new(stream.local_addr()?, socket))
+          .layer_fn(CombinedLogFormat::new)
+          .set_x_request_id(MakeRequestUuid)
+          .propagate_x_request_id()
           .layer(RouterLayer::new(php_service.clone()))
           .service(ServeDir::new(config.root()).fallback(php_service).precompressed_gzip());
 
