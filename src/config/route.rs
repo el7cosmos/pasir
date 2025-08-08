@@ -1,5 +1,4 @@
 use anyhow::Context;
-use glob::Pattern;
 use hyper::body::Incoming;
 use hyper::http::{HeaderName, HeaderValue};
 use hyper::{Request, Response, StatusCode};
@@ -86,7 +85,7 @@ pub(crate) struct RouteMatch {
   #[serde(default, deserialize_with = "deserialize_uri")]
   uri: Option<Regex>,
   #[serde(default, deserialize_with = "deserialize_headers")]
-  response_headers: HashMap<HeaderName, Pattern>,
+  response_headers: HashMap<HeaderName, Regex>,
 }
 
 impl MatchesRequest for RouteMatch {
@@ -104,7 +103,7 @@ impl MatchesResponse for RouteMatch {
       if !response.headers().contains_key(key) {
         return false;
       }
-      if !value.matches(response.headers().get(key).unwrap().to_str().unwrap()) {
+      if !value.is_match(response.headers().get(key).unwrap().to_str().unwrap()) {
         return false;
       }
     }
@@ -178,7 +177,7 @@ where
   StatusCode::from_u16(status).map(|t| t.into()).map_err(serde::de::Error::custom)
 }
 
-fn deserialize_headers<'de, D>(deserializer: D) -> Result<HashMap<HeaderName, Pattern>, D::Error>
+fn deserialize_headers<'de, D>(deserializer: D) -> Result<HashMap<HeaderName, Regex>, D::Error>
 where
   D: Deserializer<'de>,
 {
@@ -186,8 +185,10 @@ where
   let hash_map = map.into_iter().flat_map(|m| m.into_iter()).collect::<HashMap<String, String>>();
   hash_map
     .into_iter()
-    .map(|(key, value)| Ok((key.parse()?, value.parse()?)))
-    .collect::<anyhow::Result<HashMap<HeaderName, Pattern>>>()
+    .map(|(key, value)| {
+      Ok((key.parse()?, RegexBuilder::new(&value).case_insensitive(true).build()?))
+    })
+    .collect::<anyhow::Result<HashMap<HeaderName, Regex>>>()
     .map_err(serde::de::Error::custom)
 }
 

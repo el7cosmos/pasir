@@ -1191,7 +1191,6 @@ dependencies = [
  "chrono",
  "clap",
  "ext-php-rs",
- "glob",
  "headers",
  "http-body-util",
  "hyper",
