@@ -1,0 +1,30 @@
+[[routes]]
+match.uri = '(/(index|update)\.php)|(/core/[^/]*\.php$)|(/core/modules/system/tests/https?\.php)'
+serve = "php"
+
+[[routes]]
+match.uri = '(.+/.*|autoload)\.php($|/)'
+action.status = 403
+serve = "default"
+
+[[routes]]
+match.uri = '\.(engine|inc|install|make|module|profile|po|sh|.*sql|theme|twig|tpl(\.php)?|xtmpl|yml)(~|\.sw[op]|\.bak|\.orig|\.save)?$|^/(\..*|Entries.*|Repository|Root|Tag|Template|composer\.(json|lock)|web\.config|yarn\.lock|package\.json)$|#.*#$|\.php(~|\.sw[op]|\.bak|\.orig|\.save)$'
+action.status = 404
+serve = "default"
+
+[[routes]]
+match.uri = '(\.js|\.css)$'
+match.response_headers = [
+    { "Content-Encoding" = "gzip" },
+    { "Content-Type" = "foo" }
+]
+action.response_headers.insert = [
+    { "Vary" = "Accept-Encoding" },
+    { "Foo" = "Bar" }
+]
+action.response_headers.append = [
+    { "Vary" = "Accept-Encoding" }
+]
+action.response_headers.remove = [
+    "Foo"
+]

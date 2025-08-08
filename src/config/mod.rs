@@ -1,3 +1,5 @@
+pub(crate) mod route;
+
 use clap::Parser;
 use std::path::PathBuf;
 

@@ -5,14 +5,17 @@ mod util;
 mod worker;
 
 use crate::config::Config;
+use crate::config::route::Routes;
 use crate::sapi::Sapi;
 use crate::service::combined_log_format::CombinedLogFormat;
-use crate::service::router::RouterLayer;
+use crate::service::router::RouterService;
 use crate::service::serve_php::ServePhp;
 use crate::worker::start_php_worker_pool;
 use anyhow::bail;
 use clap::Parser;
 use ext_php_rs::embed::{ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup};
+use hyper::header::SERVER;
+use hyper::http::HeaderValue;
 use hyper::server::conn::http1::Builder;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::graceful::GracefulShutdown;
@@ -47,6 +50,9 @@ async fn shutdown_signal() {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let config = Config::parse();
+  let routes = Arc::new(
+    Routes::from_file(config.root().join("pasir.toml").to_str().unwrap()).unwrap_or_default(),
+  );
   let listener = TcpListener::bind((config.address(), config.port())).await?;
   let php_pool = start_php_worker_pool(config.workers())?;
   // the graceful watcher
@@ -71,16 +77,22 @@ async fn main() -> anyhow::Result<()> {
   loop {
     tokio::select! {
       Ok((stream, socket)) = listener.accept() => {
+        let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
         let php_service = ServePhp::new();
+        let serve_dir = ServeDir::new(config.root())
+            .call_fallback_on_method_not_allowed(true)
+            .append_index_html_on_directories(false)
+            .precompressed_gzip();
         let service = ServiceBuilder::new()
           .add_extension(Arc::new(config.root()))
+          .add_extension(routes.clone())
           .add_extension(php_pool.clone())
           .add_extension(Stream::new(stream.local_addr()?, socket))
           .layer_fn(CombinedLogFormat::new)
           .set_x_request_id(MakeRequestUuid)
           .propagate_x_request_id()
-          .layer(RouterLayer::new(php_service.clone()))
-          .service(ServeDir::new(config.root()).fallback(php_service).precompressed_gzip());
+          .insert_response_header_if_not_present(SERVER, HeaderValue::from_static(server))
+          .service(RouterService::new(serve_dir, php_service));
 
         let connection = Builder::new().serve_connection(TokioIo::new(stream), TowerToHyperService::new(service));
         let future = graceful.watch(connection);
