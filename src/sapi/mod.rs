@@ -7,6 +7,7 @@ use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
   ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_handle_aborted_connection,
   php_module_shutdown, php_module_startup, sapi_header_struct, sapi_shutdown, sapi_startup,
+  zend_error,
 };
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::{SapiGlobals, SapiModule};
@@ -39,7 +40,9 @@ impl Sapi {
       .register_server_variables_function(register_server_variables)
       .log_message_function(log_message)
       .get_request_time_function(get_request_time);
-    Self(builder.build().unwrap().into_raw())
+    let mut sapi_module = builder.build().unwrap();
+    sapi_module.sapi_error = Some(zend_error);
+    Self(sapi_module.into_raw())
   }
 
   pub(crate) fn startup(self) -> Result<(), ()> {
