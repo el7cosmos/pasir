@@ -1,6 +1,7 @@
 pub(crate) mod route;
 
 use clap::Parser;
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default, Parser)]
@@ -17,6 +18,8 @@ pub(crate) struct Config {
   port: u16,
   #[arg(short, long, env = "PASIR_WORKERS", default_value_t = num_cpus::get_physical())]
   workers: usize,
+  #[command(flatten)]
+  verbosity: Verbosity<InfoLevel>,
 }
 
 impl Config {
@@ -35,16 +38,17 @@ impl Config {
   pub(crate) fn workers(&self) -> usize {
     self.workers
   }
+
+  pub(crate) fn verbosity(&self) -> Verbosity<InfoLevel> {
+    self.verbosity
+  }
 }
 
-fn validate_root(arg: &str) -> Result<PathBuf, String> {
-  match PathBuf::from(arg).canonicalize() {
-    Ok(root) => {
-      if !root.is_dir() {
-        return Err("root path is not a directory".to_string());
-      }
-      Ok(root)
+fn validate_root(arg: &str) -> Result<PathBuf, std::io::Error> {
+  PathBuf::from(arg).canonicalize().and_then(|root| {
+    if !root.is_dir() {
+      return Err(std::io::Error::from(std::io::ErrorKind::NotADirectory));
     }
-    Err(err) => Err(err.to_string()),
-  }
+    Ok(root)
+  })
 }

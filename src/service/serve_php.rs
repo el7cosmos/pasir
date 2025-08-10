@@ -34,18 +34,18 @@ impl Service<Request<Incoming>> for ServePhp {
 
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
-    let stream = req.extensions().get::<Stream>().unwrap().clone();
+    let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
     let sender = req.extensions().get::<Sender<Context>>().unwrap().clone();
     let error_response = Response::internal_server_error(Empty::default().boxed_unsync());
 
     Box::pin(async move {
       let (head, body) = req.into_parts();
+      let route = resolve_php_index(root.as_path(), head.uri.path());
       let bytes = match body.collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(_) => return error_response,
       };
       let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-      let route = resolve_php_index(root.as_path(), head.uri.path());
 
       let context =
         Context::new(root, route, stream, Request::from_parts(head, bytes), Some(resp_tx));

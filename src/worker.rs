@@ -47,7 +47,7 @@ pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<
   ),
   err,
 )]
-fn execute_php(mut context: Context) -> anyhow::Result<()> {
+fn execute_php(context: Context) -> anyhow::Result<()> {
   unsafe { ext_php_rs_sapi_per_thread_init() }
 
   if context.init_globals().is_err() {

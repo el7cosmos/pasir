@@ -29,7 +29,6 @@ use tower_http::ServiceBuilderExt;
 use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
 use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
 struct Stream {
@@ -48,22 +47,26 @@ async fn shutdown_signal() {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
   let config = Config::parse();
-  let routes = Arc::new(
-    Routes::from_file(config.root().join("pasir.toml").to_str().unwrap()).unwrap_or_default(),
-  );
+
+  tracing_subscriber::fmt().with_max_level(config.verbosity()).with_target(false).init();
+
+  let result = start(config).await;
+  if result.is_err() {
+    error!("{:?}", result.unwrap_err());
+    std::process::exit(1);
+  };
+}
+
+async fn start(config: Config) -> anyhow::Result<()> {
+  let routes = Arc::new(Routes::from_file(config.root().join("pasir.toml"))?);
   let listener = TcpListener::bind((config.address(), config.port())).await?;
   let php_pool = start_php_worker_pool(config.workers())?;
   // the graceful watcher
   let graceful = GracefulShutdown::new();
   // when this signal completes, start shutdown
   let mut signal = std::pin::pin!(shutdown_signal());
-
-  tracing_subscriber::fmt()
-    .with_env_filter(EnvFilter::from_default_env())
-    .with_target(false)
-    .init();
 
   unsafe {
     ext_php_rs_sapi_startup();
@@ -74,15 +77,19 @@ async fn main() -> anyhow::Result<()> {
     bail!("Failed to start PHP SAPI module");
   };
 
+  info!("⏳  Pasir server running on [http://{}:{}]", config.address(), config.port());
+
   loop {
     tokio::select! {
       Ok((stream, socket)) = listener.accept() => {
         let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+
         let php_service = ServePhp::new();
         let serve_dir = ServeDir::new(config.root())
             .call_fallback_on_method_not_allowed(true)
             .append_index_html_on_directories(false)
             .precompressed_gzip();
+
         let service = ServiceBuilder::new()
           .add_extension(Arc::new(config.root()))
           .add_extension(routes.clone())
