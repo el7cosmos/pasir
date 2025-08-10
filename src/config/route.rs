@@ -5,6 +5,8 @@ use hyper::{Request, Response, StatusCode};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use tracing::{info, warn};
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct Routes {
@@ -12,12 +14,18 @@ pub(crate) struct Routes {
 }
 
 impl Routes {
-  pub(crate) fn from_file(path: &str) -> anyhow::Result<Self> {
-    let content = std::fs::read_to_string(path)
-      .with_context(|| format!("Failed to read config file: {path}"))?;
+  pub(crate) fn from_file(path: PathBuf) -> anyhow::Result<Self> {
+    info!("Reading routes from {:?}", path);
+    let content = std::fs::read_to_string(&path);
+    if content.is_err() {
+      warn!("{}", content.unwrap_err());
+      warn!("Using default routes");
+      return Ok(Self::default());
+    }
 
-    let routes =
-      toml::from_str(&content).with_context(|| format!("Failed to parse config file: {path}"))?;
+    let routes = toml::from_str(&content?)
+      .with_context(|| format!("Failed to parse routes from: {:?}", path))?;
+    info!("Routes loaded from {:?}", path);
 
     Ok(routes)
   }
@@ -41,7 +49,7 @@ impl ApplyActions for Routes {
   }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct Route {
   #[serde(rename = "match")]
   route_match: RouteMatch,
@@ -80,7 +88,7 @@ impl ApplyActions for Route {
   }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct RouteMatch {
   #[serde(default, deserialize_with = "deserialize_uri")]
   uri: Option<Regex>,
@@ -221,11 +229,76 @@ pub(crate) trait ApplyActions {
 
 #[cfg(test)]
 mod tests {
-  use crate::config::route::Routes;
+  use crate::config::route::{MatchesRequest, MatchesResponse, Route, RouteMatch, Routes};
+  use hyper::http::{HeaderName, HeaderValue};
+  use hyper::{Request, Response};
+  use regex::{Regex, RegexBuilder};
+  use rstest::rstest;
+  use std::collections::HashMap;
+  use std::path::PathBuf;
+  use std::str::FromStr;
 
   #[test]
-  fn test_deserialize_route() {
-    let routes = Routes::from_file("tests/fixtures/routes.toml");
+  fn test_default_routes() {
+    let routes = Routes::from_file(PathBuf::from("tests/fixtures/foo.toml"));
     assert_eq!(routes.is_ok(), true);
+    assert_eq!(routes.unwrap().routes.len(), 0);
+  }
+
+  #[test]
+  fn test_route_match_default() {
+    let route = Route::default();
+    let request = Request::<String>::default();
+    let response = Response::<String>::default();
+    assert_eq!(route.matches_request(&request), true);
+    assert_eq!(route.matches_response(&response), true);
+  }
+
+  #[rstest]
+  #[case("foo$", "/foo", true)]
+  #[case("foo$", "/bar", false)]
+  fn test_route_match_request(
+    #[case] match_uri: String,
+    #[case] request_uri: String,
+    #[case] expected: bool,
+  ) {
+    let route = Route {
+      route_match: RouteMatch {
+        uri: Some(RegexBuilder::new(&match_uri).build().unwrap()),
+        response_headers: Default::default(),
+      },
+      action: None,
+      serve: None,
+    };
+    let request = Request::builder().uri(request_uri).body(String::default()).unwrap();
+    assert_eq!(route.matches_request(&request), expected);
+  }
+
+  #[rstest]
+  #[case(("Foo", "Bar"), ("Foo", "Baz"), false)]
+  #[case(("Foo", "Bar"), ("Baz", "Bar"), false)]
+  #[case(("Foo", "Bar"), ("Foo", "Bar"), true)]
+  #[case(("Foo", "Bar"), ("foo", "Bar, Baz"), true)]
+  fn test_route_match_response(
+    #[case] match_header: (&str, &str),
+    #[case] response_header: (&str, &str),
+    #[case] expected: bool,
+  ) {
+    let (name, value) = match_header;
+    let mut response_headers = HashMap::new();
+    response_headers
+      .insert(HeaderName::from_str(name).unwrap(), RegexBuilder::new(value).build().unwrap());
+    let route =
+      Route { route_match: RouteMatch { uri: None, response_headers }, action: None, serve: None };
+
+    let (name, value) = response_header;
+    let mut builder = Response::builder();
+    builder
+      .headers_mut()
+      .unwrap()
+      .insert(HeaderName::from_str(name).unwrap(), HeaderValue::from_str(value).unwrap());
+    let response = builder.body(String::default()).unwrap();
+
+    assert_eq!(route.matches_response(&response), expected);
   }
 }
