@@ -6,7 +6,9 @@ use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full};
-use hyper::{HeaderMap, Request, Response, StatusCode, Version};
+use hyper::header::IntoHeaderName;
+use hyper::http::HeaderValue;
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri, Version};
 use std::convert::Infallible;
 use std::ffi::{CString, c_void};
 use std::net::SocketAddr;
@@ -15,11 +17,11 @@ use std::sync::Arc;
 use tokio::sync::oneshot::Sender;
 
 pub(crate) struct Context {
-  pub(crate) root: Arc<PathBuf>,
+  root: Arc<PathBuf>,
   route: PhpRoute,
   stream: Arc<Stream>,
   request: Request<Bytes>,
-  pub(crate) response_head: HeaderMap,
+  response_head: HeaderMap,
   buffer: BytesMut,
   respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Infallible>>>>,
   request_finished: bool,
@@ -65,6 +67,14 @@ impl Context {
     self.stream.peer_addr
   }
 
+  pub(crate) fn method(&self) -> &Method {
+    self.request.method()
+  }
+
+  pub(crate) fn uri(&self) -> &Uri {
+    self.request.uri()
+  }
+
   pub(crate) fn headers(&self) -> &HeaderMap {
     self.request.headers()
   }
@@ -75,6 +85,13 @@ impl Context {
 
   pub(crate) fn body_mut(&mut self) -> &mut Bytes {
     self.request.body_mut()
+  }
+
+  pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
+  where
+    K: IntoHeaderName,
+  {
+    self.response_head.append(key, value);
   }
 
   pub(crate) fn buffer(&mut self) -> &mut BytesMut {

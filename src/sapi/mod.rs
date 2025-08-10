@@ -109,7 +109,7 @@ extern "C" fn send_header(header: *mut sapi_header_struct, server_context: *mut 
     if let Some(context) = Context::from_server_context(server_context) {
       let header_str = CStr::from_ptr((*header).header.cast_const()).to_string_lossy();
       if let Some((name, value)) = util::parse_header(header_str.to_string()) {
-        context.response_head.append(
+        context.append_response_header(
           HeaderName::from_str(name.as_str()).unwrap(),
           HeaderValue::from_str(value.as_str()).unwrap(),
         );
@@ -216,13 +216,13 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
 extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
   unsafe {
-    let error_message = CStr::from_ptr(message).to_string_lossy();
+    let error_message = CStr::from_ptr(message);
     match syslog_type_int {
-      0..=3 => error!("{}", error_message),
-      4 => warn!("{}", error_message),
-      5 => info!("{}", error_message),
-      6 => debug!("{}", error_message),
-      7 => trace!("{}", error_message),
+      0..=3 => error!("{:?}", error_message),
+      4 => warn!("{:?}", error_message),
+      5 => info!("{:?}", error_message),
+      6 => debug!("{:?}", error_message),
+      7 => trace!("{:?}", error_message),
       _ => (),
     };
   }
