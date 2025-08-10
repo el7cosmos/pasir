@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
           .add_extension(Arc::new(config.root()))
           .add_extension(routes.clone())
           .add_extension(php_pool.clone())
-          .add_extension(Stream::new(stream.local_addr()?, socket))
+          .add_extension(Arc::new(Stream::new(stream.local_addr()?, socket)))
           .layer_fn(CombinedLogFormat::new)
           .set_x_request_id(MakeRequestUuid)
           .propagate_x_request_id()

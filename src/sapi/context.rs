@@ -17,7 +17,7 @@ use tokio::sync::oneshot::Sender;
 pub(crate) struct Context {
   pub(crate) root: Arc<PathBuf>,
   route: PhpRoute,
-  stream: Stream,
+  stream: Arc<Stream>,
   request: Request<Bytes>,
   pub(crate) response_head: HeaderMap,
   buffer: BytesMut,
@@ -29,7 +29,7 @@ impl Context {
   pub(crate) fn new(
     root: Arc<PathBuf>,
     route: PhpRoute,
-    stream: Stream,
+    stream: Arc<Stream>,
     request: Request<Bytes>,
     respond_to: Option<Sender<Response<UnsyncBoxBody<Bytes, Infallible>>>>,
   ) -> Self {
