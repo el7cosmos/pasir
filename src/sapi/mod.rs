@@ -79,27 +79,22 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
-  match Context::from_server_context(SapiGlobals::get().server_context) {
-    None => {
-      unsafe {
-        php_handle_aborted_connection();
-      }
-      0
-    }
-    Some(context) => match context.is_request_finished() {
+  Context::from_server_context(SapiGlobals::get().server_context)
+    .map(|context| match context.is_request_finished() {
       true => {
-        unsafe {
-          php_handle_aborted_connection();
-        }
+        unsafe { php_handle_aborted_connection() }
         0
       }
       false => {
-        let char = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), str_length) };
+        let char = unsafe { std::slice::from_raw_parts(str.cast(), str_length) };
         context.buffer().put_slice(char);
         str_length
       }
-    },
-  }
+    })
+    .unwrap_or_else(|| {
+      unsafe { php_handle_aborted_connection() }
+      0
+    })
 }
 
 extern "C" fn send_header(header: *mut sapi_header_struct, server_context: *mut c_void) {
@@ -139,24 +134,25 @@ extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
   // Calculate how much we can read
   let to_read = length.min(content_length.sub(sapi_globals.read_post_bytes) as usize);
 
-  match Context::from_server_context(sapi_globals.server_context) {
-    Some(context) => {
+  Context::from_server_context(sapi_globals.server_context)
+    .map(|context| {
       let bytes = context.body_mut().split_to(to_read);
       unsafe { buffer.copy_from(bytes.as_ptr().cast::<c_char>(), bytes.len()) }
       bytes.len()
-    }
-    None => 0,
-  }
+    })
+    .unwrap_or(0)
 }
 
 extern "C" fn read_cookies() -> *mut c_char {
-  match Context::from_server_context(SapiGlobals::get().server_context) {
-    None => std::ptr::null_mut(),
-    Some(context) => match context.headers().get("Cookie") {
-      None => std::ptr::null_mut(),
-      Some(cookie) => CString::new(cookie.to_str().unwrap()).unwrap().into_raw(),
-    },
-  }
+  Context::from_server_context(SapiGlobals::get().server_context)
+    .map(|context| {
+      context
+        .headers()
+        .get("Cookie")
+        .map(|cookie| CString::new(cookie.to_str().unwrap()).unwrap().into_raw())
+        .unwrap_or(std::ptr::null_mut())
+    })
+    .unwrap_or(std::ptr::null_mut())
 }
 
 extern "C" fn register_server_variables(vars: *mut Zval) {
@@ -233,18 +229,15 @@ extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
 }
 
 extern "C" fn get_request_time(time: *mut f64) -> c_int {
-  unsafe {
-    time.write(SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64());
-  }
+  unsafe { time.write(SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64()) }
   ZEND_RESULT_CODE_SUCCESS as c_int
 }
 
 #[php_function]
 fn fastcgi_finish_request() -> bool {
-  if let Some(context) = Context::from_server_context(SapiGlobals::get().server_context) {
-    return context.finish_request();
-  }
-  false
+  Context::from_server_context(SapiGlobals::get().server_context)
+    .map(|context| context.finish_request())
+    .unwrap_or(false)
 }
 
 #[php_module]
