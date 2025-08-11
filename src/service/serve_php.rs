@@ -1,5 +1,5 @@
 use crate::Stream;
-use crate::sapi::context::Context;
+use crate::sapi::context::{Context, ContextSender};
 use crate::util::response_ext::ResponseExt;
 use bytes::Bytes;
 use http_body_util::combinators::UnsyncBoxBody;
@@ -45,18 +45,23 @@ impl Service<Request<Incoming>> for ServePhp {
         Ok(collected) => collected.to_bytes(),
         Err(_) => return error_response,
       };
-      let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
-      let context =
-        Context::new(root, route, stream, Request::from_parts(head, bytes), Some(resp_tx));
+      let (resp_rx, head_rx, body_rx, context_tx) = ContextSender::receiver();
+
+      let context = Context::new(root, route, stream, Request::from_parts(head, bytes), context_tx);
 
       if sender.send(context).await.is_err() {
         return error_response;
       }
 
-      match resp_rx.await {
-        Ok(response) => Ok(response),
-        Err(_) => error_response,
+      tokio::select! {
+        Ok(response) = resp_rx => Ok(response),
+        Ok((status, headers)) = head_rx => {
+          let mut response = Response::new(body_rx.boxed_unsync());
+          *response.status_mut() = status;
+          *response.headers_mut() = headers;
+          Ok(response)
+        }
       }
     })
   }

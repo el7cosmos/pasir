@@ -13,6 +13,8 @@ use tower::Service;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;
 
+type ResponseBody = UnsyncBoxBody<Bytes, Infallible>;
+
 #[derive(Clone)]
 pub(crate) struct RouterService {
   inner: ServeDir,
@@ -30,13 +32,13 @@ impl RouterService {
 
   fn map_serve_dir_response(
     response: Response<ServeFileSystemResponseBody>,
-  ) -> Response<UnsyncBoxBody<Bytes, Infallible>> {
+  ) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|_| unreachable!()).boxed_unsync())
   }
 }
 
 impl Service<Request<Incoming>> for RouterService {
-  type Response = Response<UnsyncBoxBody<Bytes, Infallible>>;
+  type Response = Response<ResponseBody>;
   type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 

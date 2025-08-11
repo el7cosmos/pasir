@@ -30,7 +30,7 @@ use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Stream {
   local_addr: SocketAddr,
   peer_addr: SocketAddr,

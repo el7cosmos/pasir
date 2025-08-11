@@ -1,4 +1,5 @@
 pub(crate) mod context;
+mod ext;
 mod util;
 
 use crate::sapi::context::Context;
@@ -34,6 +35,7 @@ impl Sapi {
       .startup_function(startup)
       .shutdown_function(shutdown)
       .ub_write_function(ub_write)
+      .flush_function(flush)
       .send_header_function(send_header)
       .read_post_function(read_post)
       .read_cookies_function(read_cookies)
@@ -95,6 +97,12 @@ extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
       unsafe { php_handle_aborted_connection() }
       0
     })
+}
+
+extern "C" fn flush(server_context: *mut c_void) {
+  if let Some(context) = Context::from_server_context(server_context) {
+    context.flush();
+  }
 }
 
 extern "C" fn send_header(header: *mut sapi_header_struct, server_context: *mut c_void) {

@@ -24,7 +24,7 @@ impl Routes {
     }
 
     let routes = toml::from_str(&content?)
-      .with_context(|| format!("Failed to parse routes from: {:?}", path))?;
+      .with_context(|| format!("Failed to parse routes from: {path:?}"))?;
     info!("Routes loaded from {:?}", path);
 
     Ok(routes)
