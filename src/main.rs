@@ -16,8 +16,8 @@ use clap::Parser;
 use ext_php_rs::embed::{ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup};
 use hyper::header::SERVER;
 use hyper::http::HeaderValue;
-use hyper::server::conn::http1::Builder;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
 use hyper_util::server::graceful::GracefulShutdown;
 use hyper_util::service::TowerToHyperService;
 use std::net::SocketAddr;
@@ -63,6 +63,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
   let routes = Arc::new(Routes::from_file(config.root().join("pasir.toml"))?);
   let listener = TcpListener::bind((config.address(), config.port())).await?;
   let php_pool = start_php_worker_pool(config.workers())?;
+  let http = Builder::new(TokioExecutor::new());
   // the graceful watcher
   let graceful = GracefulShutdown::new();
   // when this signal completes, start shutdown
@@ -101,8 +102,8 @@ async fn start(config: Config) -> anyhow::Result<()> {
           .insert_response_header_if_not_present(SERVER, HeaderValue::from_static(server))
           .service(RouterService::new(serve_dir, php_service));
 
-        let connection = Builder::new().serve_connection(TokioIo::new(stream), TowerToHyperService::new(service));
-        let future = graceful.watch(connection);
+        let connection = http.serve_connection_with_upgrades(TokioIo::new(stream), TowerToHyperService::new(service));
+        let future = graceful.watch(connection.into_owned());
         tokio::spawn(async move {
           if let Err(err) = future.await {
             error!("Error serving connection: {:?}", err);
