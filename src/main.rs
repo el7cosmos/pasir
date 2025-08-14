@@ -85,7 +85,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
       Ok((stream, socket)) = listener.accept() => {
         let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
-        let php_service = ServePhp::new();
+        let php_service = ServePhp::new(php_pool.clone());
         let serve_dir = ServeDir::new(config.root())
             .call_fallback_on_method_not_allowed(true)
             .append_index_html_on_directories(false)
@@ -94,7 +94,6 @@ async fn start(config: Config) -> anyhow::Result<()> {
         let service = ServiceBuilder::new()
           .add_extension(Arc::new(config.root()))
           .add_extension(routes.clone())
-          .add_extension(php_pool.clone())
           .add_extension(Arc::new(Stream::new(stream.local_addr()?, socket)))
           .layer_fn(CombinedLogFormat::new)
           .set_x_request_id(MakeRequestUuid)
@@ -106,7 +105,14 @@ async fn start(config: Config) -> anyhow::Result<()> {
         let future = graceful.watch(connection.into_owned());
         tokio::spawn(async move {
           if let Err(err) = future.await {
-            error!("Error serving connection: {:?}", err);
+            if let Some(hyper_error) = err.downcast_ref::<hyper::Error>() {
+              if !hyper_error.is_incomplete_message() {
+                error!("Error serving connection: {err}");
+              }
+            }
+            else {
+              error!("Error serving connection: {err}");
+            }
           }
         });
       },

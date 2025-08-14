@@ -1,6 +1,13 @@
-use ext_php_rs::ffi::php_register_variable;
+use ext_php_rs::ffi::{php_handle_aborted_connection, php_register_variable};
 use ext_php_rs::types::Zval;
+use ext_php_rs::zend::ExecutorGlobals;
 use std::ffi::CString;
+
+pub(crate) fn handle_abort_connection() {
+  if !ExecutorGlobals::get().bailout.is_null() {
+    unsafe { php_handle_aborted_connection() }
+  }
+}
 
 pub(crate) fn parse_header(header: String) -> Option<(String, String)> {
   if let Some(idx) = header.find(':') {

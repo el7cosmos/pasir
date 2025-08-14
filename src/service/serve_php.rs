@@ -1,9 +1,9 @@
 use crate::Stream;
-use crate::sapi::context::{Context, ContextSender};
+use crate::sapi::context::{Context, ContextSender, ResponseType};
 use crate::util::response_ext::ResponseExt;
 use bytes::Bytes;
 use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use std::convert::Infallible;
@@ -11,15 +11,28 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{OwnedPermit, Sender};
 use tower::Service;
 
-#[derive(Clone)]
-pub(crate) struct ServePhp;
+pub(crate) struct ServePhp {
+  sender: Sender<Context>,
+  permit: Option<OwnedPermit<Context>>,
+}
+
+impl Clone for ServePhp {
+  fn clone(&self) -> Self {
+    if self.permit.is_none() {
+      return Self { sender: self.sender.clone(), permit: None };
+    }
+
+    let permit = self.sender.clone().try_reserve_owned().map(Some).unwrap_or_default();
+    Self { sender: self.sender.clone(), permit }
+  }
+}
 
 impl ServePhp {
-  pub(crate) fn new() -> Self {
-    Self {}
+  pub(crate) fn new(sender: Sender<Context>) -> Self {
+    Self { sender, permit: None }
   }
 }
 
@@ -29,13 +42,20 @@ impl Service<Request<Incoming>> for ServePhp {
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
   fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-    Poll::Ready(Ok(()))
+    match self.sender.clone().try_reserve_owned() {
+      Ok(permit) => {
+        self.permit = Some(permit);
+        Poll::Ready(Ok(()))
+      }
+      Err(_) => Poll::Pending,
+    }
   }
 
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
-    let sender = req.extensions().get::<Sender<Context>>().unwrap().clone();
+    // let sender = req.extensions().get::<Sender<Context>>().unwrap().clone();
+    let sender = self.permit.take().unwrap();
     let error_response = Response::internal_server_error(Empty::default().boxed_unsync());
 
     Box::pin(async move {
@@ -46,22 +66,24 @@ impl Service<Request<Incoming>> for ServePhp {
         Err(_) => return error_response,
       };
 
-      let (resp_rx, head_rx, body_rx, context_tx) = ContextSender::receiver();
+      let (head_rx, body_rx, context_tx) = ContextSender::receiver();
 
       let context = Context::new(root, route, stream, Request::from_parts(head, bytes), context_tx);
+      sender.send(context);
 
-      if sender.send(context).await.is_err() {
-        return error_response;
-      }
-
-      tokio::select! {
-        Ok(response) = resp_rx => Ok(response),
-        Ok((status, headers)) = head_rx => {
-          let mut response = Response::new(body_rx.boxed_unsync());
-          *response.status_mut() = status;
-          *response.headers_mut() = headers;
+      match head_rx.await {
+        Ok(mut head) => {
+          let response_type = head.extensions.get_or_insert_default::<ResponseType>();
+          let body = match response_type {
+            ResponseType::Full => {
+              Full::new(body_rx.collect().await.unwrap().to_bytes()).boxed_unsync()
+            }
+            ResponseType::Chunked => body_rx.boxed_unsync(),
+          };
+          let response = Response::from_parts(head, body);
           Ok(response)
         }
+        Err(_) => error_response,
       }
     })
   }

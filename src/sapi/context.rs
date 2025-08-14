@@ -1,26 +1,31 @@
 use crate::Stream;
 use crate::sapi::ext::SapiHeadersExt;
+use crate::sapi::util::handle_abort_connection;
 use crate::service::serve_php::PhpRoute;
-use bytes::{Bytes, BytesMut};
-use ext_php_rs::ffi::{php_handle_aborted_connection, php_handle_auth_data, php_output_end_all};
+use bytes::Bytes;
+use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
 use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
+use http_body_util::Channel;
 use http_body_util::channel::Sender as BodyChannelSender;
-use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Channel, Full};
 use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
 use hyper::http::HeaderValue;
-use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri, Version};
-use std::convert::Infallible;
+use hyper::http::response::Parts;
+use hyper::{HeaderMap, Method, Request, Response, Uri, Version};
 use std::ffi::{CString, c_void};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot::{Receiver, Sender as OneShotSender};
-use tracing::{error, instrument};
+use tracing::instrument;
 
-type ResponseBody = UnsyncBoxBody<Bytes, Infallible>;
+#[derive(Clone, Debug, Default)]
+pub(crate) enum ResponseType {
+  #[default]
+  Full,
+  Chunked,
+}
 
 #[derive(Debug)]
 pub(crate) struct Context {
@@ -28,10 +33,8 @@ pub(crate) struct Context {
   route: PhpRoute,
   stream: Arc<Stream>,
   request: Request<Bytes>,
-  response_head: HeaderMap,
-  buffer: BytesMut,
+  response_head: Parts,
   sender: ContextSender,
-  flushed: bool,
   request_finished: bool,
 }
 
@@ -43,17 +46,8 @@ impl Context {
     request: Request<Bytes>,
     sender: ContextSender,
   ) -> Self {
-    Self {
-      root,
-      route,
-      stream,
-      request,
-      sender,
-      response_head: HeaderMap::default(),
-      buffer: BytesMut::default(),
-      flushed: false,
-      request_finished: false,
-    }
+    let (response_head, _) = Response::<Bytes>::default().into_parts();
+    Self { root, route, stream, request, sender, response_head, request_finished: false }
   }
 
   pub(crate) fn from_server_context(server_context: *mut c_void) -> Option<&'static mut Context> {
@@ -96,19 +90,10 @@ impl Context {
     self.request.body_mut()
   }
 
-  pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
-  where
-    K: IntoHeaderName,
-  {
-    self.response_head.append(key, value);
-  }
-
-  pub(crate) fn buffer(&mut self) -> &mut BytesMut {
-    &mut self.buffer
-  }
-
   pub(crate) fn init_globals(&self) -> anyhow::Result<()> {
     let mut sapi_globals = SapiGlobals::get_mut();
+    sapi_globals.sapi_headers.http_response_code = 200;
+
     sapi_globals.request_info.request_method =
       CString::new(self.request.method().as_str())?.into_raw();
 
@@ -149,22 +134,39 @@ impl Context {
     Ok(())
   }
 
-  #[instrument]
-  pub(crate) fn flush(&mut self) {
-    if !self.flushed {
-      self.sender.send_head(self.response_head.clone());
+  pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
+  where
+    K: IntoHeaderName,
+  {
+    self.response_head.headers.append(key, value);
+  }
+
+  #[instrument(skip(self, data))]
+  pub(crate) fn ub_write(&mut self, data: Bytes) -> bool {
+    if let Some(mut body_tx) = self.sender.body.take()
+      && body_tx.try_send(Frame::data(data)).is_ok()
+    {
+      self.sender.body = Some(body_tx);
+      return true;
     }
 
-    self.flushed = true;
-    self.sender.send_body(Bytes::from(self.buffer.clone()), false);
-    self.buffer.clear();
+    false
+  }
+
+  #[instrument(skip(self))]
+  pub(crate) fn flush(&mut self) {
+    if self.sender.head.is_some() {
+      let mut head = self.response_head.clone();
+      head.extensions.insert(ResponseType::Chunked);
+      self.sender.send_head(head);
+    }
   }
 
   pub(crate) fn is_request_finished(&self) -> bool {
     self.request_finished
   }
 
-  #[instrument]
+  #[instrument(skip(self))]
   pub(crate) fn finish_request(&mut self) -> bool {
     if self.request_finished {
       return false;
@@ -172,91 +174,35 @@ impl Context {
 
     unsafe { php_output_end_all() }
 
-    if self.flushed {
-      self.sender.send_body(Bytes::from(self.buffer.clone()), true);
-      self.request_finished = true;
-      return true;
-    }
+    self.sender.body = None;
+    self.sender.send_head(self.response_head.clone());
 
-    if self.sender.send_response(
-      self.response_head.clone(),
-      Full::new(Bytes::from(self.buffer.clone())).boxed_unsync(),
-    ) {
-      self.request_finished = true;
-      return true;
-    }
-
-    false
+    self.request_finished = true;
+    true
   }
 }
 
-type ContextReceiver = (
-  Receiver<Response<ResponseBody>>,
-  Receiver<(StatusCode, HeaderMap)>,
-  Channel<Bytes>,
-  ContextSender,
-);
+type ContextReceiver = (Receiver<Parts>, Channel<Bytes>, ContextSender);
 
 #[derive(Default, Debug)]
 pub(crate) struct ContextSender {
-  head: Option<OneShotSender<(StatusCode, HeaderMap)>>,
+  head: Option<OneShotSender<Parts>>,
   body: Option<BodyChannelSender<Bytes>>,
-  response: Option<OneShotSender<Response<ResponseBody>>>,
 }
 
 impl ContextSender {
   pub(crate) fn receiver() -> ContextReceiver {
     let (head_tx, head_rx) = tokio::sync::oneshot::channel();
-    let (body_tx, body_rx) = Channel::<Bytes>::new(1);
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-    (
-      resp_rx,
-      head_rx,
-      body_rx,
-      Self { head: Some(head_tx), body: Some(body_tx), response: Some(resp_tx) },
-    )
+    let (body_tx, body_rx) = Channel::<Bytes>::new(5);
+    (head_rx, body_rx, Self { head: Some(head_tx), body: Some(body_tx) })
   }
 
-  #[instrument]
-  pub(crate) fn send_response(&mut self, headers: HeaderMap, body: ResponseBody) -> bool {
-    if let Some(resp_tx) = self.response.take() {
-      unsafe {
-        php_output_end_all();
-      }
-
-      let builder = Response::builder().status(SapiGlobals::get().sapi_headers().status());
-
-      let mut response = builder.body(body).unwrap();
-      *response.headers_mut() = headers;
-
-      if resp_tx.send(response).is_ok() {
-        return true;
-      }
-    }
-
-    false
-  }
-
-  #[instrument]
-  pub(crate) fn send_head(&mut self, headers: HeaderMap) {
+  #[instrument(skip(self))]
+  pub(crate) fn send_head(&mut self, mut headers: Parts) {
     if let Some(head_tx) = self.head.take() {
-      if head_tx.send((SapiGlobals::get().sapi_headers.status(), headers)).is_err() {
-        unsafe { php_handle_aborted_connection() }
-        error!("send head error");
-      }
-    }
-  }
-
-  #[instrument]
-  pub(crate) fn send_body(&mut self, body: Bytes, finished: bool) {
-    if let Some(mut body_tx) = self.body.take() {
-      if body_tx.try_send(Frame::data(body)).is_err() {
-        unsafe { php_handle_aborted_connection() }
-        error!("send body error");
-      }
-
-      if !finished {
-        self.body = Some(body_tx);
+      headers.status = SapiGlobals::get().sapi_headers().status();
+      if head_tx.send(headers).is_err() {
+        handle_abort_connection();
       }
     }
   }

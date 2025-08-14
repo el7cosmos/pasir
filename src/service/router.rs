@@ -43,8 +43,7 @@ impl Service<Request<Incoming>> for RouterService {
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
   fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-    // self.inner.poll_ready(_cx).map_err(|_| unreachable!())
-    Poll::Ready(Ok(()))
+    self.php.poll_ready(_cx)
   }
 
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
@@ -69,7 +68,6 @@ impl Service<Request<Incoming>> for RouterService {
 
     let path = req.uri().path();
     let future = match path.ends_with("/") || path.ends_with(".php") {
-      // let future = match path.ends_with(".php") {
       true => self.php.call(req),
       false => {
         let future = self.fallback().call(req);

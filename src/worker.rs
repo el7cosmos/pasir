@@ -7,7 +7,7 @@ use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::sync::mpsc;
-use tracing::{error, instrument};
+use tracing::{error, instrument, trace};
 
 pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<Context>> {
   let (tx, rx) = mpsc::channel::<Context>(size * 10);
@@ -28,9 +28,7 @@ pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<
               error!("execute_php failed: {}", error);
             }
           }
-          None => {
-            break;
-          }
+          None => break,
         }
       }
     });
@@ -42,8 +40,8 @@ pub(crate) fn start_php_worker_pool(size: usize) -> anyhow::Result<mpsc::Sender<
 #[instrument(
   skip(context),
   fields(
-    http.method = context.method().as_str(),
-    http.uri = context.uri().path(),
+    request.method = context.method().as_str(),
+    request.uri = context.uri().path(),
   ),
   err,
 )]
@@ -64,15 +62,23 @@ fn execute_php(context: Context) -> anyhow::Result<()> {
   }
 
   let _tried = try_catch_first(|| {
-    let _script = Embed::run_script(script.as_path());
+    if let Err(e) = Embed::run_script(script.as_path())
+      && e.is_bailout()
+    {
+      error!("run_script failed: {:?}", e);
+    }
   });
+  if let Err(e) = _tried {
+    error!("try_catch_first failed: {:?}", e);
+  }
 
   unsafe { php_request_shutdown(std::ptr::null_mut()) }
 
-  if let Some(context) = Context::from_server_context(SapiGlobals::get().server_context) {
-    if !context.is_request_finished() && !context.finish_request() {
-      bail!("finish request failed");
-    }
+  if let Some(context) = Context::from_server_context(SapiGlobals::get().server_context)
+    && !context.is_request_finished()
+    && !context.finish_request()
+  {
+    trace!("finish request failed");
   }
 
   Ok(())

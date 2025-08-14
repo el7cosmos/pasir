@@ -3,12 +3,12 @@ mod ext;
 mod util;
 
 use crate::sapi::context::Context;
-use bytes::BufMut;
+use crate::sapi::util::handle_abort_connection;
+use bytes::{Bytes, BytesMut};
 use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
-  ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_handle_aborted_connection,
-  php_module_shutdown, php_module_startup, sapi_header_struct, sapi_shutdown, sapi_startup,
-  zend_error,
+  ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_module_shutdown, php_module_startup,
+  sapi_header_struct, sapi_shutdown, sapi_startup, zend_error,
 };
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::{SapiGlobals, SapiModule};
@@ -20,7 +20,7 @@ use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ops::Sub;
 use std::str::FromStr;
 use std::time::SystemTime;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 use util::register_variable;
 
 #[derive(Clone, Copy, Debug)]
@@ -83,18 +83,18 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
   Context::from_server_context(SapiGlobals::get().server_context)
     .map(|context| match context.is_request_finished() {
-      true => {
-        unsafe { php_handle_aborted_connection() }
-        0
-      }
+      true => 0,
       false => {
         let char = unsafe { std::slice::from_raw_parts(str.cast(), str_length) };
-        context.buffer().put_slice(char);
-        str_length
+        match context.ub_write(Bytes::from(BytesMut::from(char))) {
+          true => str_length,
+          false => 0,
+        }
       }
     })
     .unwrap_or_else(|| {
-      unsafe { php_handle_aborted_connection() }
+      error!("Context is not available");
+      handle_abort_connection();
       0
     })
 }
@@ -226,11 +226,10 @@ extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
   unsafe {
     let error_message = CStr::from_ptr(message);
     match syslog_type_int {
-      0..=3 => error!("{:?}", error_message),
-      4 => warn!("{:?}", error_message),
-      5 => info!("{:?}", error_message),
-      6 => debug!("{:?}", error_message),
-      7 => trace!("{:?}", error_message),
+      0..=3 => error!("{error_message:?}"),
+      4 => warn!("{error_message:?}"),
+      5 | 6 => info!("{error_message:?}"),
+      7 => debug!("{error_message:?}"),
       _ => (),
     };
   }
