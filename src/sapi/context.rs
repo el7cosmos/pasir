@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot::{Receiver, Sender as OneShotSender};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) enum ResponseType {
@@ -50,8 +50,9 @@ impl Context {
     Self { root, route, stream, request, sender, response_head, request_finished: false }
   }
 
-  pub(crate) fn from_server_context(server_context: *mut c_void) -> Option<&'static mut Context> {
-    unsafe { server_context.cast::<Self>().as_mut() }
+  pub(crate) fn from_server_context<'a>(server_context: *mut c_void) -> &'a mut Context {
+    let context = server_context.cast::<Self>();
+    unsafe { &mut *context }
   }
 
   pub(crate) fn root(&self) -> &Path {
@@ -131,6 +132,16 @@ impl Context {
       }
     }
 
+    let proto_num = match self.request.version() {
+      Version::HTTP_09 => 900,
+      Version::HTTP_10 => 1000,
+      Version::HTTP_11 => 1100,
+      Version::HTTP_2 => 2000,
+      Version::HTTP_3 => 3000,
+      _ => unreachable!(),
+    };
+    sapi_globals.request_info.proto_num = proto_num;
+
     Ok(())
   }
 
@@ -143,12 +154,19 @@ impl Context {
 
   #[instrument(skip(self, data))]
   pub(crate) fn ub_write(&mut self, data: Bytes) -> bool {
-    if let Some(mut body_tx) = self.sender.body.take()
-      && body_tx.try_send(Frame::data(data)).is_ok()
-    {
+    if let Some(mut body_tx) = self.sender.body.take() {
+      if body_tx.try_send(Frame::data(data)).is_err() {
+        debug!("failed to send data to body channel");
+        return false;
+      }
+
+      if body_tx.capacity() == 0 {
+        self.flush();
+      };
+
       self.sender.body = Some(body_tx);
       return true;
-    }
+    };
 
     false
   }

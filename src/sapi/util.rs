@@ -9,16 +9,6 @@ pub(crate) fn handle_abort_connection() {
   }
 }
 
-pub(crate) fn parse_header(header: String) -> Option<(String, String)> {
-  if let Some(idx) = header.find(':') {
-    let (name, value) = header.split_at(idx);
-    let value = value.trim_start_matches(':').trim();
-    Some((name.trim().to_string(), value.to_string()))
-  } else {
-    None
-  }
-}
-
 pub(crate) fn register_variable<Name: Into<Vec<u8>>, Value: Into<Vec<u8>>>(
   name: Name,
   value: Value,

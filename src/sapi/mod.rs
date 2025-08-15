@@ -8,10 +8,10 @@ use bytes::{Bytes, BytesMut};
 use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
   ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_module_shutdown, php_module_startup,
-  sapi_header_struct, sapi_shutdown, sapi_startup, zend_error,
+  sapi_shutdown, sapi_startup, zend_error,
 };
 use ext_php_rs::types::Zval;
-use ext_php_rs::zend::{SapiGlobals, SapiModule};
+use ext_php_rs::zend::{SapiGlobals, SapiHeader, SapiModule};
 use ext_php_rs::{php_function, php_module, wrap_function};
 use headers::{HeaderMapExt, Host};
 use hyper::Uri;
@@ -81,55 +81,50 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
-  Context::from_server_context(SapiGlobals::get().server_context)
-    .map(|context| match context.is_request_finished() {
-      true => 0,
-      false => {
-        let char = unsafe { std::slice::from_raw_parts(str.cast(), str_length) };
-        match context.ub_write(Bytes::from(BytesMut::from(char))) {
-          true => str_length,
-          false => 0,
-        }
-      }
-    })
-    .unwrap_or_else(|| {
-      error!("Context is not available");
+  let context = Context::from_server_context(SapiGlobals::get().server_context);
+  if context.is_request_finished() {
+    return 0;
+  }
+
+  let char = unsafe { std::slice::from_raw_parts(str.cast(), str_length) };
+  match context.ub_write(Bytes::from(BytesMut::from(char))) {
+    true => str_length,
+    false => {
       handle_abort_connection();
       0
-    })
+    }
+  }
 }
 
 extern "C" fn flush(server_context: *mut c_void) {
-  if let Some(context) = Context::from_server_context(server_context) {
-    context.flush();
+  if !server_context.is_null() {
+    Context::from_server_context(server_context).flush();
   }
 }
 
-extern "C" fn send_header(header: *mut sapi_header_struct, server_context: *mut c_void) {
+extern "C" fn send_header(header: *mut SapiHeader, server_context: *mut c_void) {
   if header.is_null() {
     return;
   }
-  unsafe {
-    if (*header).header.is_null() {
-      return;
-    }
 
-    if let Some(context) = Context::from_server_context(server_context) {
-      let header_str = CStr::from_ptr((*header).header.cast_const()).to_string_lossy();
-      if let Some((name, value)) = util::parse_header(header_str.to_string()) {
-        context.append_response_header(
-          HeaderName::from_str(name.as_str()).unwrap(),
-          HeaderValue::from_str(value.as_str()).unwrap(),
-        );
-      }
-    }
+  let sapi_header = unsafe { *header };
+  if sapi_header.header.is_null() {
+    return;
+  }
+
+  let context = Context::from_server_context(server_context);
+  if let Some(value) = sapi_header.value() {
+    context.append_response_header(
+      HeaderName::from_str(sapi_header.name()).unwrap(),
+      HeaderValue::from_str(value).unwrap(),
+    );
   }
 }
 
 extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
   let sapi_globals = SapiGlobals::get();
 
-  let content_length = sapi_globals.request_info.content_length;
+  let content_length = sapi_globals.request_info().content_length();
   if content_length == 0 {
     return 0;
   }
@@ -142,24 +137,17 @@ extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
   // Calculate how much we can read
   let to_read = length.min(content_length.sub(sapi_globals.read_post_bytes) as usize);
 
-  Context::from_server_context(sapi_globals.server_context)
-    .map(|context| {
-      let bytes = context.body_mut().split_to(to_read);
-      unsafe { buffer.copy_from(bytes.as_ptr().cast::<c_char>(), bytes.len()) }
-      bytes.len()
-    })
-    .unwrap_or(0)
+  let context = Context::from_server_context(sapi_globals.server_context);
+  let bytes = context.body_mut().split_to(to_read);
+  unsafe { buffer.copy_from(bytes.as_ptr().cast::<c_char>(), bytes.len()) }
+  bytes.len()
 }
 
 extern "C" fn read_cookies() -> *mut c_char {
   Context::from_server_context(SapiGlobals::get().server_context)
-    .map(|context| {
-      context
-        .headers()
-        .get("Cookie")
-        .map(|cookie| CString::new(cookie.to_str().unwrap()).unwrap().into_raw())
-        .unwrap_or(std::ptr::null_mut())
-    })
+    .headers()
+    .get("Cookie")
+    .map(|cookie| CString::new(cookie.to_str().unwrap()).unwrap().into_raw())
     .unwrap_or(std::ptr::null_mut())
 }
 
@@ -187,38 +175,37 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
     register_variable("QUERY_STRING", query_string, vars);
   }
 
-  if let Some(context) = Context::from_server_context(sapi_globals.server_context) {
-    let root = context.root().to_str().unwrap_or_default();
-    let script_name = context.route().script_name();
-    let path_info = context.route().path_info();
-    let php_self = format!("{}{}", script_name, path_info.unwrap_or_default());
+  let context = Context::from_server_context(sapi_globals.server_context);
+  let root = context.root().to_str().unwrap_or_default();
+  let script_name = context.route().script_name();
+  let path_info = context.route().path_info();
+  let php_self = format!("{}{}", script_name, path_info.unwrap_or_default());
 
-    register_variable("PHP_SELF", php_self, vars);
-    register_variable("SERVER_PROTOCOL", format!("{:?}", context.version()), vars);
-    register_variable("DOCUMENT_ROOT", root, vars);
-    register_variable("REMOTE_ADDR", context.peer_addr().ip().to_string(), vars);
-    register_variable("REMOTE_PORT", context.peer_addr().port().to_string(), vars);
-    register_variable("SCRIPT_FILENAME", format!("{root}{script_name}"), vars);
-    register_variable("SERVER_ADDR", context.local_addr().ip().to_string(), vars);
-    register_variable("SERVER_PORT", context.local_addr().port().to_string(), vars);
-    register_variable("SCRIPT_NAME", script_name, vars);
-    if let Some(path_info) = path_info {
-      register_variable("PATH_INFO", path_info, vars);
-    }
+  register_variable("PHP_SELF", php_self, vars);
+  register_variable("SERVER_PROTOCOL", format!("{:?}", context.version()), vars);
+  register_variable("DOCUMENT_ROOT", root, vars);
+  register_variable("REMOTE_ADDR", context.peer_addr().ip().to_string(), vars);
+  register_variable("REMOTE_PORT", context.peer_addr().port().to_string(), vars);
+  register_variable("SCRIPT_FILENAME", format!("{root}{script_name}"), vars);
+  register_variable("SERVER_ADDR", context.local_addr().ip().to_string(), vars);
+  register_variable("SERVER_PORT", context.local_addr().port().to_string(), vars);
+  register_variable("SCRIPT_NAME", script_name, vars);
+  if let Some(path_info) = path_info {
+    register_variable("PATH_INFO", path_info, vars);
+  }
 
-    let headers = context.headers();
+  let headers = context.headers();
 
-    if let Ok(uri) = match headers.typed_get::<Host>() {
-      None => Uri::from_maybe_shared(""),
-      Some(host) => Uri::from_str(host.hostname()),
-    } {
-      register_variable("SERVER_NAME", uri.host().unwrap(), vars);
-    }
+  if let Ok(uri) = match headers.typed_get::<Host>() {
+    None => Uri::from_maybe_shared(""),
+    Some(host) => Uri::from_str(host.hostname()),
+  } {
+    register_variable("SERVER_NAME", uri.host().unwrap(), vars);
+  }
 
-    for (name, value) in headers.iter() {
-      let header_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
-      register_variable(header_name, value.to_str().unwrap(), vars);
-    }
+  for (name, value) in headers.iter() {
+    let header_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
+    register_variable(header_name, value.to_str().unwrap(), vars);
   }
 }
 
@@ -242,9 +229,7 @@ extern "C" fn get_request_time(time: *mut f64) -> c_int {
 
 #[php_function]
 fn fastcgi_finish_request() -> bool {
-  Context::from_server_context(SapiGlobals::get().server_context)
-    .map(|context| context.finish_request())
-    .unwrap_or(false)
+  Context::from_server_context(SapiGlobals::get().server_context).finish_request()
 }
 
 #[php_module]

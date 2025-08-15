@@ -74,10 +74,8 @@ fn execute_php(context: Context) -> anyhow::Result<()> {
 
   unsafe { php_request_shutdown(std::ptr::null_mut()) }
 
-  if let Some(context) = Context::from_server_context(SapiGlobals::get().server_context)
-    && !context.is_request_finished()
-    && !context.finish_request()
-  {
+  let context = Context::from_server_context(SapiGlobals::get().server_context);
+  if !context.is_request_finished() && !context.finish_request() {
     trace!("finish request failed");
   }
 
