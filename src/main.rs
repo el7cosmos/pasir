@@ -8,8 +8,8 @@ use crate::config::Config;
 use crate::config::route::Routes;
 use crate::sapi::Sapi;
 use crate::service::combined_log_format::CombinedLogFormat;
+use crate::service::php::PhpService;
 use crate::service::router::RouterService;
-use crate::service::serve_php::ServePhp;
 use anyhow::bail;
 use clap::Parser;
 use ext_php_rs::embed::{ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup};
@@ -83,7 +83,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
       Ok((stream, socket)) = listener.accept() => {
         let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
-        let php_service = ServePhp::new();
+        let php_service = PhpService::new();
         let serve_dir = ServeDir::new(config.root())
             .call_fallback_on_method_not_allowed(true)
             .append_index_html_on_directories(false)

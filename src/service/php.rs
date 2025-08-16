@@ -20,15 +20,15 @@ use tower::Service;
 use tracing::{debug, error, instrument, trace};
 
 #[derive(Clone)]
-pub(crate) struct ServePhp {}
+pub(crate) struct PhpService {}
 
-impl ServePhp {
+impl PhpService {
   pub(crate) fn new() -> Self {
     Self {}
   }
 }
 
-impl Service<Request<Incoming>> for ServePhp {
+impl Service<Request<Incoming>> for PhpService {
   type Response = Response<UnsyncBoxBody<Bytes, Infallible>>;
   type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;

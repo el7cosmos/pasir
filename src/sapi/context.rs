@@ -1,7 +1,7 @@
 use crate::Stream;
 use crate::sapi::ext::SapiHeadersExt;
 use crate::sapi::util::handle_abort_connection;
-use crate::service::serve_php::PhpRoute;
+use crate::service::php::PhpRoute;
 use crate::unbound_channel::{Sender, UnboundChannel};
 use bytes::Bytes;
 use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};

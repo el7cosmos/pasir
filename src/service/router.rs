@@ -1,5 +1,5 @@
 use crate::config::route::{ApplyActions, RouteServe, Routes};
-use crate::service::serve_php::ServePhp;
+use crate::service::php::PhpService;
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use http_body_util::combinators::UnsyncBoxBody;
@@ -18,15 +18,15 @@ type ResponseBody = UnsyncBoxBody<Bytes, Infallible>;
 #[derive(Clone)]
 pub(crate) struct RouterService {
   inner: ServeDir,
-  php: ServePhp,
+  php: PhpService,
 }
 
 impl RouterService {
-  pub(crate) fn new(inner: ServeDir, php: ServePhp) -> Self {
+  pub(crate) fn new(inner: ServeDir, php: PhpService) -> Self {
     Self { inner, php }
   }
 
-  fn fallback(&self) -> ServeDir<ServePhp> {
+  fn fallback(&self) -> ServeDir<PhpService> {
     self.inner.clone().fallback(self.php.clone())
   }
 
