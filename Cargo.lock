@@ -1193,6 +1193,7 @@ dependencies = [
  "clap",
  "clap-verbosity-flag",
  "ext-php-rs",
+ "futures-util",
  "headers",
  "http-body-util",
  "hyper",

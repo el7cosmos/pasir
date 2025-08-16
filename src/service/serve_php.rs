@@ -54,7 +54,6 @@ impl Service<Request<Incoming>> for ServePhp {
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
-    // let sender = req.extensions().get::<Sender<Context>>().unwrap().clone();
     let sender = self.permit.take().unwrap();
     let error_response = Response::internal_server_error(Empty::default().boxed_unsync());
 

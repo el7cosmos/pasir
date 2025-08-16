@@ -11,6 +11,7 @@ chrono = { version = "0.4.41", default-features = false, features = ["now"] }
 clap = { version = "4.5.41", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env"] }
 clap-verbosity-flag = { version = "3.0.3", default-features = false, features = ["tracing"] }
 ext-php-rs = { version = "0.14.2", features = ["embed"] }
+futures-util = { version = "0.3.31", default-features = false }
 headers = "0.4.1"
 http-body-util = { version = "0.1.3", features = ["channel"] }
 hyper = { version = "1.6.0", features = ["http1", "http2", "server"] }

@@ -2,12 +2,11 @@ use crate::Stream;
 use crate::sapi::ext::SapiHeadersExt;
 use crate::sapi::util::handle_abort_connection;
 use crate::service::serve_php::PhpRoute;
+use crate::unbound_channel::{Sender, UnboundChannel};
 use bytes::Bytes;
 use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
 use ext_php_rs::zend::SapiGlobals;
 use headers::{ContentLength, ContentType, HeaderMapExt};
-use http_body_util::Channel;
-use http_body_util::channel::Sender as BodyChannelSender;
 use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
 use hyper::http::HeaderValue;
@@ -155,14 +154,10 @@ impl Context {
   #[instrument(skip(self, data))]
   pub(crate) fn ub_write(&mut self, data: Bytes) -> bool {
     if let Some(mut body_tx) = self.sender.body.take() {
-      if body_tx.try_send(Frame::data(data)).is_err() {
-        debug!("failed to send data to body channel");
+      if let Err(frame) = body_tx.send(Frame::data(data)) {
+        debug!("Failed to send data to body channel: {frame}");
         return false;
       }
-
-      if body_tx.capacity() == 0 {
-        self.flush();
-      };
 
       self.sender.body = Some(body_tx);
       return true;
@@ -172,12 +167,15 @@ impl Context {
   }
 
   #[instrument(skip(self))]
-  pub(crate) fn flush(&mut self) {
+  pub(crate) fn flush(&mut self) -> bool {
     if self.sender.head.is_some() {
       let mut head = self.response_head.clone();
       head.extensions.insert(ResponseType::Chunked);
       self.sender.send_head(head);
+      return true;
     }
+
+    false
   }
 
   pub(crate) fn is_request_finished(&self) -> bool {
@@ -192,7 +190,9 @@ impl Context {
 
     unsafe { php_output_end_all() }
 
-    self.sender.body = None;
+    if let Some(body_tx) = self.sender.body.take() {
+      body_tx.abort();
+    }
     self.sender.send_head(self.response_head.clone());
 
     self.request_finished = true;
@@ -200,18 +200,18 @@ impl Context {
   }
 }
 
-type ContextReceiver = (Receiver<Parts>, Channel<Bytes>, ContextSender);
+type ContextReceiver = (Receiver<Parts>, UnboundChannel<Bytes>, ContextSender);
 
 #[derive(Default, Debug)]
 pub(crate) struct ContextSender {
   head: Option<OneShotSender<Parts>>,
-  body: Option<BodyChannelSender<Bytes>>,
+  body: Option<Sender<Bytes>>,
 }
 
 impl ContextSender {
   pub(crate) fn receiver() -> ContextReceiver {
     let (head_tx, head_rx) = tokio::sync::oneshot::channel();
-    let (body_tx, body_rx) = Channel::<Bytes>::new(5);
+    let (body_tx, body_rx) = UnboundChannel::<Bytes>::new();
     (head_rx, body_rx, Self { head: Some(head_tx), body: Some(body_tx) })
   }
 

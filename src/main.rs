@@ -1,6 +1,7 @@
 mod config;
 mod sapi;
 mod service;
+mod unbound_channel;
 mod util;
 mod worker;
 
@@ -28,9 +29,9 @@ use tower::ServiceBuilder;
 use tower_http::ServiceBuilderExt;
 use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct Stream {
   local_addr: SocketAddr,
   peer_addr: SocketAddr,
@@ -54,7 +55,7 @@ async fn main() {
 
   let result = start(config).await;
   if result.is_err() {
-    error!("{:?}", result.unwrap_err());
+    error!("{}", result.unwrap_err());
     std::process::exit(1);
   };
 }
@@ -105,10 +106,8 @@ async fn start(config: Config) -> anyhow::Result<()> {
         let future = graceful.watch(connection.into_owned());
         tokio::spawn(async move {
           if let Err(err) = future.await {
-            if let Some(hyper_error) = err.downcast_ref::<hyper::Error>() {
-              if !hyper_error.is_incomplete_message() {
-                error!("Error serving connection: {err}");
-              }
+            if let Some(hyper_error) = err.downcast_ref::<hyper::Error>() && hyper_error.is_incomplete_message() {
+              debug!("Error serving connection: {err}");
             }
             else {
               error!("Error serving connection: {err}");
@@ -127,14 +126,14 @@ async fn start(config: Config) -> anyhow::Result<()> {
 
   tokio::select! {
     _ = graceful.shutdown() => {
-      unsafe {
-        sapi.shutdown();
-        ext_php_rs_sapi_shutdown();
-      }
       info!("all connections gracefully closed");
       Ok(())
     },
     _ = tokio::time::sleep(Duration::from_secs(10)) => {
+      unsafe {
+        sapi.shutdown();
+        ext_php_rs_sapi_shutdown();
+      }
       info!("timed out wait for all connections to close");
       Ok(())
     }
