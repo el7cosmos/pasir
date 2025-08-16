@@ -3,7 +3,6 @@ mod sapi;
 mod service;
 mod unbound_channel;
 mod util;
-mod worker;
 
 use crate::config::Config;
 use crate::config::route::Routes;
@@ -11,7 +10,6 @@ use crate::sapi::Sapi;
 use crate::service::combined_log_format::CombinedLogFormat;
 use crate::service::router::RouterService;
 use crate::service::serve_php::ServePhp;
-use crate::worker::start_php_worker_pool;
 use anyhow::bail;
 use clap::Parser;
 use ext_php_rs::embed::{ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup};
@@ -63,7 +61,6 @@ async fn main() {
 async fn start(config: Config) -> anyhow::Result<()> {
   let routes = Arc::new(Routes::from_file(config.root().join("pasir.toml"))?);
   let listener = TcpListener::bind((config.address(), config.port())).await?;
-  let php_pool = start_php_worker_pool(config.workers())?;
   let http = Builder::new(TokioExecutor::new());
   // the graceful watcher
   let graceful = GracefulShutdown::new();
@@ -86,7 +83,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
       Ok((stream, socket)) = listener.accept() => {
         let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
-        let php_service = ServePhp::new(php_pool.clone());
+        let php_service = ServePhp::new();
         let serve_dir = ServeDir::new(config.root())
             .call_fallback_on_method_not_allowed(true)
             .append_index_html_on_directories(false)

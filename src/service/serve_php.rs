@@ -1,38 +1,30 @@
 use crate::Stream;
 use crate::sapi::context::{Context, ContextSender, ResponseType};
 use crate::util::response_ext::ResponseExt;
+use anyhow::bail;
 use bytes::Bytes;
+use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
+use ext_php_rs::ffi::{ZEND_RESULT_CODE_FAILURE, php_request_shutdown, php_request_startup};
+use ext_php_rs::zend::{SapiGlobals, try_catch_first};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use std::convert::Infallible;
+use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio::sync::mpsc::{OwnedPermit, Sender};
 use tower::Service;
+use tracing::{debug, error, instrument, trace};
 
-pub(crate) struct ServePhp {
-  sender: Sender<Context>,
-  permit: Option<OwnedPermit<Context>>,
-}
-
-impl Clone for ServePhp {
-  fn clone(&self) -> Self {
-    if self.permit.is_none() {
-      return Self { sender: self.sender.clone(), permit: None };
-    }
-
-    let permit = self.sender.clone().try_reserve_owned().map(Some).unwrap_or_default();
-    Self { sender: self.sender.clone(), permit }
-  }
-}
+#[derive(Clone)]
+pub(crate) struct ServePhp {}
 
 impl ServePhp {
-  pub(crate) fn new(sender: Sender<Context>) -> Self {
-    Self { sender, permit: None }
+  pub(crate) fn new() -> Self {
+    Self {}
   }
 }
 
@@ -42,19 +34,12 @@ impl Service<Request<Incoming>> for ServePhp {
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
   fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self.sender.clone().try_reserve_owned() {
-      Ok(permit) => {
-        self.permit = Some(permit);
-        Poll::Ready(Ok(()))
-      }
-      Err(_) => Poll::Pending,
-    }
+    Poll::Ready(Ok(()))
   }
 
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
-    let sender = self.permit.take().unwrap();
     let error_response = Response::internal_server_error(Empty::default().boxed_unsync());
 
     Box::pin(async move {
@@ -68,7 +53,9 @@ impl Service<Request<Incoming>> for ServePhp {
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
 
       let context = Context::new(root, route, stream, Request::from_parts(head, bytes), context_tx);
-      sender.send(context);
+      if let Err(err) = execute_php(context) {
+        debug!("Error executing PHP: {}", err);
+      }
 
       match head_rx.await {
         Ok(mut head) => {
@@ -107,6 +94,51 @@ impl PhpRoute {
   pub(crate) fn path_info(&self) -> Option<&str> {
     self.path_info.as_deref()
   }
+}
+
+#[instrument(
+  skip(context),
+  fields(
+    request.method = context.method().as_str(),
+    request.uri = context.uri().path(),
+  ),
+  err,
+)]
+fn execute_php(context: Context) -> anyhow::Result<()> {
+  unsafe { ext_php_rs_sapi_per_thread_init() }
+
+  if context.init_globals().is_err() {
+    bail!("context.init_globals failed");
+  }
+
+  let script = context.root().join(context.route().script_name().trim_start_matches("/"));
+
+  let context_raw = Box::into_raw(Box::new(context));
+  SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
+
+  if unsafe { php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
+    bail!("php_request_startup failed");
+  }
+
+  let _tried = try_catch_first(|| {
+    if let Err(e) = Embed::run_script(script.as_path())
+      && e.is_bailout()
+    {
+      error!("run_script failed: {:?}", e);
+    }
+  });
+  if let Err(e) = _tried {
+    error!("try_catch_first failed: {:?}", e);
+  }
+
+  unsafe { php_request_shutdown(std::ptr::null_mut()) }
+
+  let context = Context::from_server_context(SapiGlobals::get().server_context);
+  if !context.is_request_finished() && !context.finish_request() {
+    trace!("finish request failed");
+  }
+
+  Ok(())
 }
 
 /// Resolves a request URI to the appropriate PHP file and path info

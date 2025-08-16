@@ -16,8 +16,6 @@ pub(crate) struct Config {
   address: String,
   #[arg(short, long, env = "PASIR_PORT", required = true)]
   port: u16,
-  #[arg(short, long, env = "PASIR_WORKERS", default_value_t = num_cpus::get_physical())]
-  workers: usize,
   #[command(flatten)]
   verbosity: Verbosity<InfoLevel>,
 }
@@ -33,10 +31,6 @@ impl Config {
 
   pub(crate) fn port(&self) -> u16 {
     self.port
-  }
-
-  pub(crate) fn workers(&self) -> usize {
-    self.workers
   }
 
   pub(crate) fn verbosity(&self) -> Verbosity<InfoLevel> {
