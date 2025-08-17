@@ -5,6 +5,13 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+    paths:
+      - '.cargo/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.*'
+      - 'Cargo.*'
+      - 'rustfmt.toml'
 
 env:
   CARGO_TERM_COLOR: always
