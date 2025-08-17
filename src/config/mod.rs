@@ -4,7 +4,7 @@ use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Default, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(version, about, author)]
 pub(crate) struct Config {
   #[arg(
@@ -12,7 +12,7 @@ pub(crate) struct Config {
     value_parser = validate_root,
   )]
   root: PathBuf,
-  #[arg(short, long, env = "PASIR_ADDRESS", default_value = "0.0.0.0")]
+  #[arg(short, long, env = "PASIR_ADDRESS", default_value_os_t = std::net::Ipv4Addr::LOCALHOST.to_string())]
   address: String,
   #[arg(short, long, env = "PASIR_PORT", required = true)]
   port: u16,
