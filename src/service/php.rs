@@ -19,14 +19,8 @@ use std::task::Poll;
 use tower::Service;
 use tracing::{debug, error, instrument, trace};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct PhpService {}
-
-impl PhpService {
-  pub(crate) fn new() -> Self {
-    Self {}
-  }
-}
 
 impl Service<Request<Incoming>> for PhpService {
   type Response = Response<UnsyncBoxBody<Bytes, Infallible>>;

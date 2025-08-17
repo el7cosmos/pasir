@@ -7,7 +7,6 @@ mod util;
 use crate::config::Config;
 use crate::config::route::Routes;
 use crate::sapi::Sapi;
-use crate::service::combined_log_format::CombinedLogFormat;
 use crate::service::php::PhpService;
 use crate::service::router::RouterService;
 use anyhow::bail;
@@ -23,11 +22,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::signal::ctrl_c;
 use tower::ServiceBuilder;
 use tower_http::ServiceBuilderExt;
 use tower_http::request_id::MakeRequestUuid;
 use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
+use tracing_subscriber::fmt::format;
 
 #[derive(Debug)]
 struct Stream {
@@ -41,15 +43,16 @@ impl Stream {
   }
 }
 
-async fn shutdown_signal() {
-  tokio::signal::ctrl_c().await.expect("Failed to install CTRL+C handler");
-}
-
 #[tokio::main]
 async fn main() {
   let config = Config::parse();
 
-  tracing_subscriber::fmt().with_max_level(config.verbosity()).with_target(false).init();
+  let format = format().compact();
+  tracing_subscriber::fmt()
+    .event_format(format)
+    .with_max_level(config.verbosity())
+    .with_target(false)
+    .init();
 
   let result = start(config).await;
   if result.is_err() {
@@ -65,7 +68,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
   // the graceful watcher
   let graceful = GracefulShutdown::new();
   // when this signal completes, start shutdown
-  let mut signal = std::pin::pin!(shutdown_signal());
+  let mut signal = std::pin::pin!(ctrl_c());
 
   unsafe {
     ext_php_rs_sapi_startup();
@@ -76,14 +79,14 @@ async fn start(config: Config) -> anyhow::Result<()> {
     bail!("Failed to start PHP SAPI module");
   };
 
-  info!("⏳  Pasir server running on [http://{}:{}]", config.address(), config.port());
+  info!("Pasir running on [http://{}:{}]", config.address(), config.port());
 
   loop {
     tokio::select! {
       Ok((stream, socket)) = listener.accept() => {
         let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
-        let php_service = PhpService::new();
+        let php_service = PhpService::default();
         let serve_dir = ServeDir::new(config.root())
             .call_fallback_on_method_not_allowed(true)
             .append_index_html_on_directories(false)
@@ -93,8 +96,8 @@ async fn start(config: Config) -> anyhow::Result<()> {
           .add_extension(Arc::new(config.root()))
           .add_extension(routes.clone())
           .add_extension(Arc::new(Stream::new(stream.local_addr()?, socket)))
-          .layer_fn(CombinedLogFormat::new)
           .set_x_request_id(MakeRequestUuid)
+          .layer(TraceLayer::new_for_http().on_request(()))
           .propagate_x_request_id()
           .insert_response_header_if_not_present(SERVER, HeaderValue::from_static(server))
           .service(RouterService::new(serve_dir, php_service));
@@ -113,9 +116,9 @@ async fn start(config: Config) -> anyhow::Result<()> {
         });
       },
 
-      _ = &mut signal => {
+      _ = signal.as_mut() => {
         drop(listener);
-        info!("graceful shutdown signal received");
+        info!("Starting graceful shutdown");
         break;
       }
     }
@@ -123,15 +126,15 @@ async fn start(config: Config) -> anyhow::Result<()> {
 
   tokio::select! {
     _ = graceful.shutdown() => {
-      info!("all connections gracefully closed");
+      sapi.shutdown();
+      unsafe { ext_php_rs_sapi_shutdown() }
+      info!("Gracefully shutdown");
       Ok(())
     },
     _ = tokio::time::sleep(Duration::from_secs(10)) => {
-      unsafe {
-        sapi.shutdown();
-        ext_php_rs_sapi_shutdown();
-      }
-      info!("timed out wait for all connections to close");
+      sapi.shutdown();
+      unsafe { ext_php_rs_sapi_shutdown() }
+      info!("Time out while waiting for graceful shutdown, aborting");
       Ok(())
     }
   }
