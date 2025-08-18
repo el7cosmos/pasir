@@ -35,6 +35,12 @@ existing PHP applications.
 
 - **PHP**: Version 8.1+ compiled with `--disable-zend-signals --enable-embed --enable-zts`
 
+#### Using Homebrew
+
+```bash
+brew install el7cosmos/pasir/pasir
+```
+
 #### Using Pre-built Binaries
 
 ```bash
