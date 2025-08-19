@@ -2,10 +2,12 @@ pub(crate) mod route;
 
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
+use ext_php_rs::ffi::PHP_VERSION;
+use std::ffi::CStr;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Parser)]
-#[command(version, about, author)]
+#[command(version, long_version = long_version(), about, author)]
 pub(crate) struct Config {
   #[arg(
     default_value_os_t = std::env::current_dir().unwrap_or(PathBuf::from(".")),
@@ -36,6 +38,14 @@ impl Config {
   pub(crate) fn verbosity(&self) -> Verbosity<InfoLevel> {
     self.verbosity
   }
+}
+
+fn long_version() -> String {
+  format!(
+    "{}\nPHP {}",
+    env!("CARGO_PKG_VERSION"),
+    CStr::from_bytes_with_nul(PHP_VERSION).unwrap().to_string_lossy()
+  )
 }
 
 fn validate_root(arg: &str) -> Result<PathBuf, std::io::Error> {

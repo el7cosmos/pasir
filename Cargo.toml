@@ -7,7 +7,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.98"
 bytes = "1.10.1"
-clap = { version = "4.5.41", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env"] }
+clap = { version = "4.5.41", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
 clap-verbosity-flag = { version = "3.0.3", default-features = false, features = ["tracing"] }
 ext-php-rs = { version = "0.14.2", features = ["embed"] }
 futures-util = { version = "0.3.31", default-features = false }
