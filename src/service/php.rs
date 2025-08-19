@@ -1,7 +1,7 @@
 use crate::Stream;
-use crate::sapi::context::{Context, ContextSender, ResponseType};
+use crate::sapi::context::{Context, ContextGuard, ContextSender, ResponseType};
 use crate::util::response_ext::ResponseExt;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
 use ext_php_rs::ffi::{ZEND_RESULT_CODE_FAILURE, php_request_shutdown, php_request_startup};
@@ -17,7 +17,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
 use tower::Service;
-use tracing::{debug, error, instrument, trace};
+use tracing::{error, instrument, trace};
 
 #[derive(Clone, Default)]
 pub(crate) struct PhpService {}
@@ -47,8 +47,8 @@ impl Service<Request<Incoming>> for PhpService {
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
 
       let context = Context::new(root, route, stream, Request::from_parts(head, bytes), context_tx);
-      if let Err(err) = execute_php(context) {
-        debug!("Error executing PHP: {}", err);
+      if execute_php(context).is_err() {
+        return error_response;
       }
 
       match head_rx.await {
@@ -108,26 +108,34 @@ fn execute_php(context: Context) -> anyhow::Result<()> {
   let script = context.root().join(context.route().script_name().trim_start_matches("/"));
 
   let context_raw = Box::into_raw(Box::new(context));
+  let _guard = ContextGuard(context_raw.cast::<c_void>());
   SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
 
   if unsafe { php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
     bail!("php_request_startup failed");
   }
 
-  let _tried = try_catch_first(|| {
+  let catch = try_catch_first(|| {
     if let Err(e) = Embed::run_script(script.as_path())
       && e.is_bailout()
     {
       error!("run_script failed: {:?}", e);
     }
   });
-  if let Err(e) = _tried {
-    error!("try_catch_first failed: {:?}", e);
-  }
 
   unsafe { php_request_shutdown(std::ptr::null_mut()) }
 
-  let context = Context::from_server_context(SapiGlobals::get().server_context);
+  if let Err(e) = catch {
+    return Err(anyhow!("{:?}", e));
+  }
+
+  // Validate server_context before using
+  let server_context = SapiGlobals::get().server_context;
+  if server_context.is_null() || server_context != context_raw.cast::<c_void>() {
+    bail!("Server context corrupted during execution");
+  }
+
+  let context = Context::from_server_context(server_context);
   if !context.is_request_finished() && !context.finish_request() {
     trace!("finish request failed");
   }

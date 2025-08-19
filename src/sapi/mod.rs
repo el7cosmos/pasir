@@ -81,6 +81,10 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
+  if str.is_null() || SapiGlobals::get().server_context.is_null() {
+    return 0;
+  }
+
   let context = Context::from_server_context(SapiGlobals::get().server_context);
   if context.is_request_finished() {
     return 0;
@@ -103,7 +107,7 @@ extern "C" fn flush(server_context: *mut c_void) {
 }
 
 extern "C" fn send_header(header: *mut SapiHeader, server_context: *mut c_void) {
-  if header.is_null() {
+  if header.is_null() || server_context.is_null() {
     return;
   }
 

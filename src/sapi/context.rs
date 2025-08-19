@@ -200,6 +200,20 @@ impl Context {
   }
 }
 
+pub(crate) struct ContextGuard(pub(crate) *mut c_void);
+
+impl Drop for ContextGuard {
+  fn drop(&mut self) {
+    if !self.0.is_null() {
+      // Convert back to Box and let it drop properly
+      unsafe {
+        let _context = Box::from_raw(self.0.cast::<Context>());
+        // Box destructor will clean up the Context
+      }
+    }
+  }
+}
+
 type ContextReceiver = (Receiver<Parts>, UnboundChannel<Bytes>, ContextSender);
 
 #[derive(Default, Debug)]
