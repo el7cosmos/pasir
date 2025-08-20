@@ -1,7 +1,7 @@
 use ext_php_rs::ffi::{php_handle_aborted_connection, php_register_variable};
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::ExecutorGlobals;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 
 pub(crate) fn handle_abort_connection() {
   if !ExecutorGlobals::get().bailout.is_null() {
@@ -9,16 +9,9 @@ pub(crate) fn handle_abort_connection() {
   }
 }
 
-pub(crate) fn register_variable<Name: Into<Vec<u8>>, Value: Into<Vec<u8>>>(
-  name: Name,
-  value: Value,
-  vars: *mut Zval,
-) {
+pub(crate) fn register_variable<Value: Into<Vec<u8>>>(name: &CStr, value: Value, vars: *mut Zval) {
   unsafe {
-    php_register_variable(
-      CString::new(name).unwrap().into_raw(),
-      CString::new(value).unwrap().into_raw(),
-      vars,
-    );
+    let c_value = CString::new(value).unwrap();
+    php_register_variable(name.as_ptr(), c_value.as_ptr(), vars);
   }
 }

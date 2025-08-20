@@ -1,14 +1,16 @@
 pub(crate) mod context;
 mod ext;
 mod util;
+mod variables;
 
 use crate::sapi::context::Context;
 use crate::sapi::util::handle_abort_connection;
+use crate::sapi::variables::*;
 use bytes::{Bytes, BytesMut};
 use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
 use ext_php_rs::ffi::{
   ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_module_shutdown, php_module_startup,
-  sapi_shutdown, sapi_startup, zend_error,
+  php_register_variable, sapi_shutdown, sapi_startup, zend_error,
 };
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::{SapiGlobals, SapiHeader, SapiModule};
@@ -81,7 +83,7 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
-  if str.is_null() || SapiGlobals::get().server_context.is_null() {
+  if str.is_null() || str_length == 0 || SapiGlobals::get().server_context.is_null() {
     return 0;
   }
 
@@ -157,7 +159,7 @@ extern "C" fn read_cookies() -> *mut c_char {
 
 extern "C" fn register_server_variables(vars: *mut Zval) {
   register_variable(
-    "SERVER_SOFTWARE",
+    SERVER_SOFTWARE,
     format!(
       "{}/{} ({})",
       env!("CARGO_PKG_NAME"),
@@ -169,14 +171,20 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
   let sapi_globals = SapiGlobals::get();
   let request_info = sapi_globals.request_info();
-  if let Some(uri) = request_info.request_uri() {
-    register_variable("REQUEST_URI", uri, vars);
+  if !request_info.request_uri.is_null() {
+    unsafe {
+      php_register_variable(REQUEST_URI.as_ptr(), request_info.request_uri.cast_const(), vars);
+    }
   }
-  if let Some(method) = request_info.request_method() {
-    register_variable("REQUEST_METHOD", method, vars);
+  if !request_info.request_method.is_null() {
+    unsafe {
+      php_register_variable(REQUEST_METHOD.as_ptr(), request_info.request_method, vars);
+    }
   }
-  if let Some(query_string) = request_info.query_string() {
-    register_variable("QUERY_STRING", query_string, vars);
+  if !request_info.query_string.is_null() {
+    unsafe {
+      php_register_variable(QUERY_STRING.as_ptr(), request_info.query_string.cast_const(), vars);
+    }
   }
 
   let context = Context::from_server_context(sapi_globals.server_context);
@@ -185,17 +193,17 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   let path_info = context.route().path_info();
   let php_self = format!("{}{}", script_name, path_info.unwrap_or_default());
 
-  register_variable("PHP_SELF", php_self, vars);
-  register_variable("SERVER_PROTOCOL", format!("{:?}", context.version()), vars);
-  register_variable("DOCUMENT_ROOT", root, vars);
-  register_variable("REMOTE_ADDR", context.peer_addr().ip().to_string(), vars);
-  register_variable("REMOTE_PORT", context.peer_addr().port().to_string(), vars);
-  register_variable("SCRIPT_FILENAME", format!("{root}{script_name}"), vars);
-  register_variable("SERVER_ADDR", context.local_addr().ip().to_string(), vars);
-  register_variable("SERVER_PORT", context.local_addr().port().to_string(), vars);
-  register_variable("SCRIPT_NAME", script_name, vars);
+  register_variable(PHP_SELF, php_self, vars);
+  register_variable(SERVER_PROTOCOL, format!("{:?}", context.version()), vars);
+  register_variable(DOCUMENT_ROOT, root, vars);
+  register_variable(REMOTE_ADDR, context.peer_addr().ip().to_string(), vars);
+  register_variable(REMOTE_PORT, context.peer_addr().port().to_string(), vars);
+  register_variable(SCRIPT_FILENAME, format!("{root}{script_name}"), vars);
+  register_variable(SERVER_ADDR, context.local_addr().ip().to_string(), vars);
+  register_variable(SERVER_PORT, context.local_addr().port().to_string(), vars);
+  register_variable(SCRIPT_NAME, script_name, vars);
   if let Some(path_info) = path_info {
-    register_variable("PATH_INFO", path_info, vars);
+    register_variable(PATH_INFO, path_info, vars);
   }
 
   let headers = context.headers();
@@ -204,12 +212,12 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
     None => Uri::from_maybe_shared(""),
     Some(host) => Uri::from_str(host.hostname()),
   } {
-    register_variable("SERVER_NAME", uri.host().unwrap(), vars);
+    register_variable(SERVER_NAME, uri.host().unwrap(), vars);
   }
 
   for (name, value) in headers.iter() {
     let header_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
-    register_variable(header_name, value.to_str().unwrap(), vars);
+    register_variable(CString::new(header_name).unwrap().as_c_str(), value.to_str().unwrap(), vars);
   }
 }
 

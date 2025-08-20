@@ -55,8 +55,8 @@ async fn main() {
     .init();
 
   let result = start(config).await;
-  if result.is_err() {
-    error!("{}", result.unwrap_err());
+  if let Err(err) = result {
+    error!("{}", err);
     std::process::exit(1);
   };
 }
@@ -70,9 +70,7 @@ async fn start(config: Config) -> anyhow::Result<()> {
   // when this signal completes, start shutdown
   let mut signal = std::pin::pin!(ctrl_c());
 
-  unsafe {
-    ext_php_rs_sapi_startup();
-  }
+  unsafe { ext_php_rs_sapi_startup() }
 
   let sapi = Sapi::new();
   if sapi.startup().is_err() {
