@@ -100,54 +100,7 @@ impl PhpRoute {
   }
 }
 
-#[instrument(
-  skip(context),
-  fields(
-    request.method = context.method().as_str(),
-    request.uri = context.uri().path(),
-  ),
-  err,
-)]
-fn execute_php(context: Context) -> anyhow::Result<()> {
-  let script = context.root().join(context.route().script_name().trim_start_matches("/"));
-
-  let context_raw = Box::into_raw(Box::new(context));
-  let _guard = ContextGuard(context_raw.cast::<c_void>());
-  SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
-
-  if unsafe { php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
-    bail!("php_request_startup failed");
-  }
-
-  let catch = try_catch_first(|| {
-    if let Err(e) = Embed::run_script(script.as_path())
-      && e.is_bailout()
-    {
-      error!("run_script failed: {:?}", e);
-    }
-  });
-
-  unsafe { php_request_shutdown(std::ptr::null_mut()) }
-
-  if let Err(e) = catch {
-    return Err(anyhow!("{:?}", e));
-  }
-
-  // Validate server_context before using
-  let server_context = SapiGlobals::get().server_context;
-  if server_context.is_null() || server_context != context_raw.cast::<c_void>() {
-    bail!("Server context corrupted during execution");
-  }
-
-  let context = Context::from_server_context(server_context);
-  if !context.is_request_finished() && !context.finish_request() {
-    trace!("finish request failed");
-  }
-
-  Ok(())
-}
-
-#[instrument]
+#[instrument(skip(head, root, script_name), err)]
 fn init_sapi_globals(head: &Parts, root: &Path, script_name: &str) -> anyhow::Result<()> {
   let mut sapi_globals = SapiGlobals::get_mut();
   sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
@@ -191,6 +144,46 @@ fn init_sapi_globals(head: &Parts, root: &Path, script_name: &str) -> anyhow::Re
     _ => unreachable!(),
   };
   sapi_globals.request_info.proto_num = proto_num;
+
+  Ok(())
+}
+
+#[instrument(skip(context), err)]
+fn execute_php(context: Context) -> anyhow::Result<()> {
+  let script = context.root().join(context.route().script_name().trim_start_matches("/"));
+
+  let context_raw = Box::into_raw(Box::new(context));
+  let _guard = ContextGuard(context_raw.cast::<c_void>());
+  SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
+
+  if unsafe { php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
+    bail!("php_request_startup failed");
+  }
+
+  let catch = try_catch_first(|| {
+    if let Err(e) = Embed::run_script(script.as_path())
+      && e.is_bailout()
+    {
+      error!("run_script failed: {:?}", e);
+    }
+  });
+
+  unsafe { php_request_shutdown(std::ptr::null_mut()) }
+
+  if let Err(e) = catch {
+    return Err(anyhow!("{:?}", e));
+  }
+
+  // Validate server_context before using
+  let server_context = SapiGlobals::get().server_context;
+  if server_context.is_null() || server_context != context_raw.cast::<c_void>() {
+    bail!("Server context corrupted during execution");
+  }
+
+  let context = Context::from_server_context(server_context);
+  if !context.is_request_finished() && !context.finish_request() {
+    trace!("finish request failed");
+  }
 
   Ok(())
 }
