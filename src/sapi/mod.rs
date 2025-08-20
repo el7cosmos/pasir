@@ -244,7 +244,30 @@ fn fastcgi_finish_request() -> bool {
   Context::from_server_context(SapiGlobals::get().server_context).finish_request()
 }
 
+unsafe extern "C" fn request_shutdown(_type: i32, _module_number: i32) -> i32 {
+  let mut request_info = SapiGlobals::get().request_info;
+
+  free_ptr(&mut request_info.request_method.cast_mut());
+  free_ptr(&mut request_info.query_string);
+  free_ptr(&mut request_info.path_translated);
+  free_ptr(&mut request_info.request_uri);
+  free_ptr(&mut request_info.content_type.cast_mut());
+  free_ptr(&mut request_info.cookie_data);
+
+  ZEND_RESULT_CODE_SUCCESS
+}
+
+// Helper to free and null a pointer we allocated with into_raw()
+fn free_ptr(ptr: &mut *mut std::os::raw::c_char) {
+  if !ptr.is_null() {
+    let _ = unsafe { CString::from_raw(*ptr) };
+    *ptr = std::ptr::null_mut();
+  }
+}
+
 #[php_module]
 pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
-  module.function(wrap_function!(fastcgi_finish_request))
+  module
+    .function(wrap_function!(fastcgi_finish_request))
+    .request_shutdown_function(request_shutdown)
 }
