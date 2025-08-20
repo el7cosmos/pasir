@@ -232,7 +232,9 @@ impl ContextSender {
   #[instrument(skip(self))]
   pub(crate) fn send_head(&mut self, mut headers: Parts) {
     if let Some(head_tx) = self.head.take() {
-      headers.status = SapiGlobals::get().sapi_headers().status();
+      if let Ok(status) = SapiGlobals::get().sapi_headers().status() {
+        headers.status = status;
+      }
       if head_tx.send(headers).is_err() {
         handle_abort_connection();
       }
