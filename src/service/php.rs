@@ -4,14 +4,19 @@ use crate::util::response_ext::ResponseExt;
 use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
-use ext_php_rs::ffi::{ZEND_RESULT_CODE_FAILURE, php_request_shutdown, php_request_startup};
+use ext_php_rs::ffi::{
+  ZEND_RESULT_CODE_FAILURE, php_handle_auth_data, php_request_shutdown, php_request_startup,
+};
 use ext_php_rs::zend::{SapiGlobals, try_catch_first};
+use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Incoming;
-use hyper::{Request, Response};
+use hyper::http::request::Parts;
+use hyper::{Request, Response, StatusCode, Version};
 use std::convert::Infallible;
-use std::ffi::c_void;
+use std::ffi::{CString, c_void};
+use std::os::raw::c_int;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -44,9 +49,14 @@ impl Service<Request<Incoming>> for PhpService {
         Err(_) => return error_response,
       };
 
-      let (head_rx, body_rx, context_tx) = ContextSender::receiver();
+      unsafe { ext_php_rs_sapi_per_thread_init() }
+      if init_sapi_globals(&head, root.as_path(), route.script_name()).is_err() {
+        return error_response;
+      }
 
-      let context = Context::new(root, route, stream, Request::from_parts(head, bytes), context_tx);
+      let (head_rx, body_rx, context_tx) = ContextSender::receiver();
+      let request = Request::from_parts(head, bytes);
+      let context = Context::new(root, route, stream, request, context_tx);
       if execute_php(context).is_err() {
         return error_response;
       }
@@ -99,12 +109,6 @@ impl PhpRoute {
   err,
 )]
 fn execute_php(context: Context) -> anyhow::Result<()> {
-  unsafe { ext_php_rs_sapi_per_thread_init() }
-
-  if context.init_globals().is_err() {
-    bail!("context.init_globals failed");
-  }
-
   let script = context.root().join(context.route().script_name().trim_start_matches("/"));
 
   let context_raw = Box::into_raw(Box::new(context));
@@ -139,6 +143,54 @@ fn execute_php(context: Context) -> anyhow::Result<()> {
   if !context.is_request_finished() && !context.finish_request() {
     trace!("finish request failed");
   }
+
+  Ok(())
+}
+
+#[instrument]
+fn init_sapi_globals(head: &Parts, root: &Path, script_name: &str) -> anyhow::Result<()> {
+  let mut sapi_globals = SapiGlobals::get_mut();
+  sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
+
+  sapi_globals.request_info.request_method = CString::new(head.method.as_str())?.into_raw();
+
+  sapi_globals.request_info.query_string = head
+    .uri
+    .query()
+    .and_then(|query| CString::new(query).ok())
+    .map(|query| query.into_raw())
+    .unwrap_or_else(std::ptr::null_mut);
+
+  let path_translated = format!("{}{}", root.to_str().unwrap(), script_name);
+  sapi_globals.request_info.path_translated = CString::new(path_translated)?.into_raw();
+
+  sapi_globals.request_info.request_uri = CString::new(head.uri.to_string())?.into_raw();
+
+  sapi_globals.request_info.content_length = head
+    .headers
+    .typed_get::<ContentLength>()
+    .map_or(0, |content_length| content_length.0.cast_signed());
+
+  sapi_globals.request_info.content_type =
+    head.headers.typed_get::<ContentType>().map_or(std::ptr::null_mut(), |content_type| {
+      CString::new(content_type.to_string()).unwrap().into_raw()
+    });
+
+  if let Some(auth) = head.headers.get("Authorization") {
+    unsafe {
+      php_handle_auth_data(CString::new(auth.as_bytes())?.as_ptr());
+    }
+  }
+
+  let proto_num = match head.version {
+    Version::HTTP_09 => 900,
+    Version::HTTP_10 => 1000,
+    Version::HTTP_11 => 1100,
+    Version::HTTP_2 => 2000,
+    Version::HTTP_3 => 3000,
+    _ => unreachable!(),
+  };
+  sapi_globals.request_info.proto_num = proto_num;
 
   Ok(())
 }

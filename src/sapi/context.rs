@@ -4,15 +4,14 @@ use crate::sapi::util::handle_abort_connection;
 use crate::service::php::PhpRoute;
 use crate::unbound_channel::{Sender, UnboundChannel};
 use bytes::Bytes;
-use ext_php_rs::ffi::{php_handle_auth_data, php_output_end_all};
+use ext_php_rs::ffi::php_output_end_all;
 use ext_php_rs::zend::SapiGlobals;
-use headers::{ContentLength, ContentType, HeaderMapExt};
 use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
 use hyper::http::HeaderValue;
 use hyper::http::response::Parts;
 use hyper::{HeaderMap, Method, Request, Response, Uri, Version};
-use std::ffi::{CString, c_void};
+use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -88,60 +87,6 @@ impl Context {
 
   pub(crate) fn body_mut(&mut self) -> &mut Bytes {
     self.request.body_mut()
-  }
-
-  pub(crate) fn init_globals(&self) -> anyhow::Result<()> {
-    let mut sapi_globals = SapiGlobals::get_mut();
-    sapi_globals.sapi_headers.http_response_code = 200;
-
-    sapi_globals.request_info.request_method =
-      CString::new(self.request.method().as_str())?.into_raw();
-
-    sapi_globals.request_info.query_string = self
-      .request
-      .uri()
-      .query()
-      .and_then(|query| CString::new(query).ok())
-      .map(|query| query.into_raw())
-      .unwrap_or_else(std::ptr::null_mut);
-
-    let path_translated = format!("{}{}", self.root.to_str().unwrap(), self.route.script_name());
-    sapi_globals.request_info.path_translated = CString::new(path_translated)?.into_raw();
-
-    sapi_globals.request_info.request_uri =
-      CString::new(self.request.uri().to_string())?.into_raw();
-
-    sapi_globals.request_info.content_length = self
-      .request
-      .headers()
-      .typed_get::<ContentLength>()
-      .map_or(0, |content_length| content_length.0.cast_signed());
-
-    sapi_globals.request_info.content_type = self
-      .request
-      .headers()
-      .typed_get::<ContentType>()
-      .map_or(std::ptr::null_mut(), |content_type| {
-        CString::new(content_type.to_string()).unwrap().into_raw()
-      });
-
-    if let Some(auth) = self.request.headers().get("Authorization") {
-      unsafe {
-        php_handle_auth_data(CString::new(auth.as_bytes())?.into_raw());
-      }
-    }
-
-    let proto_num = match self.request.version() {
-      Version::HTTP_09 => 900,
-      Version::HTTP_10 => 1000,
-      Version::HTTP_11 => 1100,
-      Version::HTTP_2 => 2000,
-      Version::HTTP_3 => 3000,
-      _ => unreachable!(),
-    };
-    sapi_globals.request_info.proto_num = proto_num;
-
-    Ok(())
   }
 
   pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
