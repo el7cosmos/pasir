@@ -58,7 +58,48 @@ impl<D> Sender<D> {
   }
 
   /// Aborts the body in an abnormal fashion.
-  pub fn abort(self) {
+  pub(crate) fn abort(self) {
     self.tx_finish.send(()).ok();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::unbound_channel::UnboundChannel;
+  use bytes::Bytes;
+  use http_body_util::BodyExt;
+  use hyper::body::Frame;
+
+  #[tokio::test]
+  async fn empty() {
+    let (tx, body) = UnboundChannel::<Bytes>::new();
+    drop(tx);
+
+    let collected = body.collect().await.unwrap();
+    assert!(collected.to_bytes().is_empty());
+  }
+
+  #[tokio::test]
+  async fn can_send_data() {
+    let (mut tx, body) = UnboundChannel::<Bytes>::new();
+
+    tokio::spawn(async move {
+      assert!((tx.send(Frame::data(Bytes::from("Hel")))).is_ok());
+      assert!(tx.send(Frame::data(Bytes::from("lo!"))).is_ok());
+    });
+
+    let collected = body.collect().await.unwrap();
+    assert_eq!(collected.to_bytes(), "Hello!");
+  }
+
+  #[tokio::test]
+  async fn abort_will_close() {
+    let (tx, body) = UnboundChannel::<Bytes>::new();
+
+    tokio::spawn(async move {
+      tx.abort();
+    });
+
+    assert!(body.collect().await.is_ok());
   }
 }
