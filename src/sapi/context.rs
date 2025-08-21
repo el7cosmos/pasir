@@ -1,5 +1,5 @@
 use crate::Stream;
-use crate::sapi::ext::SapiHeadersExt;
+use crate::sapi::ext::FromSapiHeaders;
 use crate::sapi::util::handle_abort_connection;
 use crate::service::php::PhpRoute;
 use crate::unbound_channel::{Sender, UnboundChannel};
@@ -10,7 +10,7 @@ use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
 use hyper::http::HeaderValue;
 use hyper::http::response::Parts;
-use hyper::{HeaderMap, Method, Request, Response, Uri, Version};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri, Version};
 use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -177,7 +177,7 @@ impl ContextSender {
   #[instrument(skip(self))]
   pub(crate) fn send_head(&mut self, mut headers: Parts) {
     if let Some(head_tx) = self.head.take() {
-      if let Ok(status) = SapiGlobals::get().sapi_headers().status() {
+      if let Ok(status) = StatusCode::from_sapi_headers(SapiGlobals::get().sapi_headers()) {
         headers.status = status;
       }
       if head_tx.send(headers).is_err() {
