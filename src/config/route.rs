@@ -232,7 +232,7 @@ mod tests {
   use crate::config::route::{MatchesRequest, MatchesResponse, Route, RouteMatch, Routes};
   use hyper::http::{HeaderName, HeaderValue};
   use hyper::{Request, Response};
-  use regex::{Regex, RegexBuilder};
+  use regex::RegexBuilder;
   use rstest::rstest;
   use std::collections::HashMap;
   use std::path::PathBuf;

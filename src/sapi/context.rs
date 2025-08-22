@@ -10,7 +10,7 @@ use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
 use hyper::http::HeaderValue;
 use hyper::http::response::Parts;
-use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri, Version};
+use hyper::{HeaderMap, Request, Response, StatusCode, Version};
 use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -67,14 +67,6 @@ impl Context {
 
   pub(crate) fn peer_addr(&self) -> SocketAddr {
     self.stream.peer_addr
-  }
-
-  pub(crate) fn method(&self) -> &Method {
-    self.request.method()
-  }
-
-  pub(crate) fn uri(&self) -> &Uri {
-    self.request.uri()
   }
 
   pub(crate) fn headers(&self) -> &HeaderMap {
