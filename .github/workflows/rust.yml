@@ -7,6 +7,7 @@ on:
     branches: [ "main" ]
     paths:
       - '.cargo/**'
+      - '.github/workflows/rust.yml'
       - 'src/**'
       - 'tests/**'
       - 'Cargo.*'
@@ -44,8 +45,11 @@ jobs:
           phpts: ts
       - if: ${{ matrix.library_path }}
         run: echo "LIBRARY_PATH=${{ matrix.library_path }}" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       - run: cargo verify-project
       - run: cargo fmt --check
       - run: cargo clippy
       - run: cargo build
-      - run: cargo test
+      - run: cargo nextest run
