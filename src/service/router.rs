@@ -1,8 +1,7 @@
 use crate::config::route::{ApplyActions, RouteServe, Routes};
+use crate::service::ResponseBody;
 use crate::service::php::PhpService;
-use bytes::Bytes;
 use http_body_util::BodyExt;
-use http_body_util::combinators::UnsyncBoxBody;
 use hyper::body::Incoming;
 use hyper::{Request, Response};
 use std::convert::Infallible;
@@ -12,8 +11,6 @@ use std::task::Poll;
 use tower::Service;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;
-
-type ResponseBody = UnsyncBoxBody<Bytes, Infallible>;
 
 #[derive(Clone)]
 pub(crate) struct RouterService {

@@ -39,26 +39,27 @@ impl Service<Request<Incoming>> for PhpService {
   fn call(&mut self, req: Request<Incoming>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
-    let error_response = Response::internal_server_error(Empty::default().boxed_unsync());
+    let error_body = Empty::default().boxed_unsync();
 
     Box::pin(async move {
       let (head, body) = req.into_parts();
       let route = resolve_php_index(root.as_path(), head.uri.path());
       let bytes = match body.collect().await {
         Ok(collected) => collected.to_bytes(),
-        Err(_) => return error_response,
+        Err(_) => return Response::internal_server_error(error_body),
       };
 
       unsafe { ext_php_rs_sapi_per_thread_init() }
-      if init_sapi_globals(&head, root.as_path(), route.script_name()).is_err() {
-        return error_response;
+      let path_translated = format!("{}{}", root.to_str().unwrap(), route.script_name());
+      if init_sapi_globals(&head, path_translated.as_str()).is_err() {
+        return Response::internal_server_error(error_body);
       }
 
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
       let request = Request::from_parts(head, bytes);
       let context = Context::new(root, route, stream, request, context_tx);
       if execute_php(context).is_err() {
-        return error_response;
+        return Response::internal_server_error(error_body);
       }
 
       match head_rx.await {
@@ -73,7 +74,7 @@ impl Service<Request<Incoming>> for PhpService {
           let response = Response::from_parts(head, body);
           Ok(response)
         }
-        Err(_) => error_response,
+        Err(_) => Response::internal_server_error(error_body),
       }
     })
   }
@@ -100,30 +101,23 @@ impl PhpRoute {
   }
 }
 
-#[instrument(skip(head, root, script_name), err)]
-fn init_sapi_globals(head: &Parts, root: &Path, script_name: &str) -> anyhow::Result<()> {
+#[instrument(skip(head, path_translated), err)]
+fn init_sapi_globals(head: &Parts, path_translated: &str) -> anyhow::Result<()> {
   let mut sapi_globals = SapiGlobals::get_mut();
   sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
-
   sapi_globals.request_info.request_method = CString::new(head.method.as_str())?.into_raw();
-
   sapi_globals.request_info.query_string = head
     .uri
     .query()
     .and_then(|query| CString::new(query).ok())
     .map(|query| query.into_raw())
     .unwrap_or_else(std::ptr::null_mut);
-
-  let path_translated = format!("{}{}", root.to_str().unwrap(), script_name);
   sapi_globals.request_info.path_translated = CString::new(path_translated)?.into_raw();
-
   sapi_globals.request_info.request_uri = CString::new(head.uri.to_string())?.into_raw();
-
   sapi_globals.request_info.content_length = head
     .headers
     .typed_get::<ContentLength>()
     .map_or(0, |content_length| content_length.0.cast_signed());
-
   sapi_globals.request_info.content_type =
     head.headers.typed_get::<ContentType>().map_or(std::ptr::null_mut(), |content_type| {
       CString::new(content_type.to_string()).unwrap().into_raw()
@@ -229,7 +223,7 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> PhpRoute {
     }
   }
 
-  // Try to find index.php by traversing from most specific to least specific path
+  // Try to find index.php by traversing from the most specific to the least specific path
   for i in (0..=segments.len()).rev() {
     let current_path_segments = &segments[0..i];
     let remaining_segments = &segments[i..];

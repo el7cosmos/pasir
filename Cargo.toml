@@ -3,10 +3,12 @@ name = "pasir"
 description = "PHP Application Server In Rust"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1.0.98"
 bytes = "1.10.1"
+cfg-if = "1.0.3"
 clap = { version = "4.5.41", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
 clap-verbosity-flag = { version = "3.0.3", default-features = false, features = ["tracing"] }
 ext-php-rs = { version = "0.14.2", features = ["embed"] }
@@ -19,7 +21,7 @@ regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.46.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 toml = "0.9.5"
-tower = { version = "0.5.2", features = ["util"] }
+tower = { version = "0.5.2", features = ["timeout", "util"] }
 tower-http = { version = "0.6.6", features = ["add-extension", "fs", "request-id", "set-header", "trace", "util"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["ansi"] }
@@ -30,3 +32,6 @@ rstest = { version = "0.26.1", default-features = false }
 
 [profile.dev]
 debug = true
+
+[build-dependencies]
+anyhow = "1.0.98"
