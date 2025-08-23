@@ -1,11 +1,11 @@
 use bytes::Buf;
 use futures_util::FutureExt;
 use hyper::body::{Body, Frame};
-use oneshot::Receiver;
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::oneshot::Receiver;
 use tokio::sync::{mpsc, oneshot};
 
 pub(crate) struct UnboundChannel<D> {

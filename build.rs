@@ -9,7 +9,7 @@ impl PHPInfo {
   /// Get the PHP info.
   ///
   /// # Errors
-  /// - `php -i` command failed to execute successfully
+  /// - `phpinfo()` failed to execute successfully
   pub fn get(php: &Path) -> anyhow::Result<Self> {
     let cmd = Command::new(php)
       .arg("-r")

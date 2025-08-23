@@ -268,7 +268,41 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> PhpRoute {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::sapi::tests::TestSapi;
+  use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
+  use hyper::{Method, Uri};
   use std::fs;
+
+  #[test]
+  fn test_init_sapi_globals() {
+    let _guard = TestSapi::new();
+
+    let uri = Uri::builder().path_and_query("/foo?bar=baz").build().unwrap();
+    let (head, _) = Request::builder()
+      .method(Method::POST)
+      .version(Version::HTTP_3)
+      .header(CONTENT_LENGTH, "Foo Bar".len())
+      .header(CONTENT_TYPE, "text/plain")
+      .uri(uri)
+      .body(Bytes::default())
+      .unwrap()
+      .into_parts();
+    let results = init_sapi_globals(&head, "./index.php");
+    assert!(results.is_ok());
+
+    let sapi_globals = SapiGlobals::get();
+    assert_eq!(sapi_globals.sapi_headers().http_response_code, StatusCode::OK.as_u16() as c_int);
+
+    let request_info = sapi_globals.request_info();
+    assert_eq!(request_info.request_method(), Some(Method::POST.as_str()));
+    assert_eq!(request_info.query_string(), Some("bar=baz"));
+    assert_eq!(request_info.path_translated(), Some("./index.php"));
+    assert_eq!(request_info.request_uri(), Some("/foo?bar=baz"));
+    assert_eq!(request_info.content_length(), "Foo Bar".len() as i64);
+    assert_eq!(request_info.content_type(), Some("text/plain"));
+    assert_eq!(request_info.auth_user(), None);
+    assert_eq!(request_info.proto_num(), 3000);
+  }
 
   #[test]
   fn test_resolve_php_index() {

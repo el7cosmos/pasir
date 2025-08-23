@@ -271,3 +271,123 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
     .function(wrap_function!(fastcgi_finish_request))
     .request_shutdown_function(request_shutdown)
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+  use super::*;
+  use ext_php_rs::embed::{
+    ext_php_rs_sapi_per_thread_init, ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup,
+  };
+
+  pub(crate) struct TestSapi(*mut SapiModule);
+
+  impl TestSapi {
+    pub(crate) fn new() -> Self {
+      let sapi = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
+        .build()
+        .unwrap()
+        .into_raw();
+      unsafe { ext_php_rs_sapi_startup() }
+      unsafe { sapi_startup(sapi) }
+      Self(sapi)
+    }
+  }
+
+  impl Drop for TestSapi {
+    fn drop(&mut self) {
+      unsafe { sapi_shutdown() }
+      unsafe { ext_php_rs_sapi_shutdown() }
+    }
+  }
+
+  /// Test SAPI module creation
+  /// This tests the core SAPI functionality of creating a new SAPI module instance
+  #[test]
+  fn test_sapi_new() {
+    let sapi = Sapi::new();
+
+    // Verify that the SAPI module pointer is not null
+    assert!(!sapi.0.is_null(), "SAPI module should not be null after creation");
+
+    // Verify that the SAPI module has the correct name and description
+    unsafe {
+      let sapi_module = *sapi.0;
+      assert!(!sapi_module.name.is_null(), "SAPI module name should not be null");
+
+      let name = CStr::from_ptr(sapi_module.name).to_string_lossy();
+      assert_eq!(name, env!("CARGO_PKG_NAME"), "SAPI module name should match package name");
+
+      // Verify callback functions are properly set
+      assert!(sapi_module.startup.is_some(), "Startup function should be set");
+      assert!(sapi_module.shutdown.is_some(), "Shutdown function should be set");
+      assert!(sapi_module.ub_write.is_some(), "UB write function should be set");
+      assert!(sapi_module.flush.is_some(), "Flush function should be set");
+      assert!(sapi_module.send_header.is_some(), "Send header function should be set");
+      assert!(sapi_module.read_post.is_some(), "Read post function should be set");
+      assert!(sapi_module.read_cookies.is_some(), "Read cookies function should be set");
+      assert!(
+        sapi_module.register_server_variables.is_some(),
+        "Register server variables function should be set"
+      );
+      assert!(sapi_module.log_message.is_some(), "Log message function should be set");
+      assert!(sapi_module.get_request_time.is_some(), "Get request time function should be set");
+      assert!(sapi_module.sapi_error.is_some(), "SAPI error function should be set");
+    }
+  }
+
+  #[test]
+  fn test_sapi_startup_shutdown() {
+    let sapi = TestSapi::new();
+
+    assert_eq!(ZEND_RESULT_CODE_SUCCESS, startup(sapi.0));
+    assert_eq!(ZEND_RESULT_CODE_SUCCESS, shutdown(sapi.0))
+  }
+
+  #[test]
+  fn test_ub_write() {
+    let _sapi = TestSapi::new();
+    unsafe { ext_php_rs_sapi_per_thread_init() }
+    assert_eq!(ub_write(std::ptr::null_mut(), 0), 0);
+    let str = CString::new("hello").unwrap();
+    assert_eq!(ub_write(str.as_ptr(), "hello".len()), 0);
+  }
+
+  /// Test multiple SAPI instances can be created
+  /// This ensures SAPI creation is properly isolated
+  #[test]
+  fn test_multiple_sapi_instances() {
+    let sapi1 = Sapi::new();
+    let sapi2 = Sapi::new();
+
+    // Verify both instances have valid, different pointers
+    assert!(!sapi1.0.is_null(), "First SAPI instance should be valid");
+    assert!(!sapi2.0.is_null(), "Second SAPI instance should be valid");
+    assert_ne!(sapi1.0, sapi2.0, "SAPI instances should have different pointers");
+  }
+
+  /// Test SAPI thread safety markers
+  /// This verifies that Sapi implements Send and Sync correctly
+  #[test]
+  fn test_sapi_thread_safety() {
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+
+    // These should compile without error due to our unsafe impl Send/Sync
+    assert_send::<Sapi>();
+    assert_sync::<Sapi>();
+  }
+
+  /// Test get_request_time callback
+  /// This tests the request time functionality which is safe to call
+  #[test]
+  fn test_get_request_time() {
+    let mut time: f64 = 0.0;
+    let result = get_request_time(&mut time as *mut f64);
+
+    // Should return success code
+    assert_eq!(result, ZEND_RESULT_CODE_SUCCESS as c_int, "get_request_time should return success");
+
+    // Time should be positive (seconds since Unix epoch)
+    assert!(time > 0.0, "Request time should be positive");
+  }
+}
