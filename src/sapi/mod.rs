@@ -22,7 +22,7 @@ use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ops::Sub;
 use std::str::FromStr;
 use std::time::SystemTime;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 use util::register_variable;
 
 #[derive(Clone, Copy, Debug)]
@@ -234,9 +234,18 @@ extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
   }
 }
 
+#[instrument(skip(time))]
 extern "C" fn get_request_time(time: *mut f64) -> c_int {
-  unsafe { time.write(SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs_f64()) }
-  ZEND_RESULT_CODE_SUCCESS as c_int
+  match SystemTime::UNIX_EPOCH.elapsed() {
+    Ok(timestamp) => {
+      unsafe { time.write(timestamp.as_secs_f64()) };
+      ZEND_RESULT_CODE_SUCCESS
+    }
+    Err(e) => {
+      error!("{e}");
+      ZEND_RESULT_CODE_FAILURE
+    }
+  }
 }
 
 #[php_function]
@@ -382,12 +391,11 @@ pub(crate) mod tests {
   #[test]
   fn test_get_request_time() {
     let mut time: f64 = 0.0;
-    let result = get_request_time(&mut time as *mut f64);
+    let timestamp = SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs();
+    let result = get_request_time(&mut time);
 
     // Should return success code
-    assert_eq!(result, ZEND_RESULT_CODE_SUCCESS as c_int, "get_request_time should return success");
-
-    // Time should be positive (seconds since Unix epoch)
-    assert!(time > 0.0, "Request time should be positive");
+    assert_eq!(result, ZEND_RESULT_CODE_SUCCESS, "get_request_time should return success");
+    unsafe { assert_eq!(time.to_int_unchecked::<u64>(), timestamp) }
   }
 }
