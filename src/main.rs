@@ -1,7 +1,6 @@
 mod config;
 mod sapi;
 mod service;
-mod unbound_channel;
 mod util;
 
 use crate::config::Config;

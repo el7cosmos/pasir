@@ -8,13 +8,13 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) struct UnboundChannel<D> {
+pub struct UnboundChannel<D> {
   rx_frame: mpsc::UnboundedReceiver<Frame<D>>,
   rx_finish: Receiver<()>,
 }
 
 impl<D> UnboundChannel<D> {
-  pub(crate) fn new() -> (Sender<D>, Self) {
+  pub fn new() -> (Sender<D>, Self) {
     let (tx_frame, rx_frame) = mpsc::unbounded_channel();
     let (tx_finish, rx_finish) = oneshot::channel();
     (Sender { tx_frame, tx_finish }, Self { rx_frame, rx_finish })
@@ -47,18 +47,18 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct Sender<D> {
+pub struct Sender<D> {
   tx_frame: mpsc::UnboundedSender<Frame<D>>,
   tx_finish: oneshot::Sender<()>,
 }
 
 impl<D> Sender<D> {
-  pub(crate) fn send(&mut self, frame: Frame<D>) -> Result<(), SendError<Frame<D>>> {
+  pub fn send(&mut self, frame: Frame<D>) -> Result<(), SendError<Frame<D>>> {
     self.tx_frame.send(frame)
   }
 
   /// Aborts the body in an abnormal fashion.
-  pub(crate) fn abort(self) {
+  pub fn abort(self) {
     self.tx_finish.send(()).ok();
   }
 }

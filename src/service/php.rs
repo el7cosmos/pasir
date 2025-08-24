@@ -1,21 +1,21 @@
 use crate::Stream;
 use crate::sapi::context::{Context, ContextGuard, ContextSender, ResponseType};
 use crate::util::response_ext::ResponseExt;
-use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
 use ext_php_rs::ffi::{
   ZEND_RESULT_CODE_FAILURE, php_handle_auth_data, php_request_shutdown, php_request_startup,
 };
-use ext_php_rs::zend::{SapiGlobals, try_catch_first};
+use ext_php_rs::zend::{SapiGlobals, bailout, try_catch_first};
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Incoming;
 use hyper::http::request::Parts;
 use hyper::{Request, Response, StatusCode, Version};
+use pasir::error::PhpError;
 use std::convert::Infallible;
-use std::ffi::{CString, c_void};
+use std::ffi::{CString, NulError, c_void};
 use std::os::raw::c_int;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -52,14 +52,17 @@ impl Service<Request<Incoming>> for PhpService {
       unsafe { ext_php_rs_sapi_per_thread_init() }
       let path_translated = format!("{}{}", root.to_str().unwrap(), route.script_name());
       if init_sapi_globals(&head, path_translated.as_str()).is_err() {
-        return Response::internal_server_error(error_body);
+        return Response::bad_request(error_body);
       }
 
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
       let request = Request::from_parts(head, bytes);
       let context = Context::new(root, route, stream, request, context_tx);
-      if execute_php(context).is_err() {
-        return Response::internal_server_error(error_body);
+      if let Err(err) = execute_php(context) {
+        return match err {
+          PhpError::RequestStartupFailed => Response::service_unavailable(error_body),
+          PhpError::ServerContextCorrupted => Response::internal_server_error(error_body),
+        };
       }
 
       match head_rx.await {
@@ -102,7 +105,7 @@ impl PhpRoute {
 }
 
 #[instrument(skip(head, path_translated), err)]
-fn init_sapi_globals(head: &Parts, path_translated: &str) -> anyhow::Result<()> {
+fn init_sapi_globals(head: &Parts, path_translated: &str) -> Result<(), NulError> {
   let mut sapi_globals = SapiGlobals::get_mut();
   sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
   sapi_globals.request_info.request_method = CString::new(head.method.as_str())?.into_raw();
@@ -119,9 +122,9 @@ fn init_sapi_globals(head: &Parts, path_translated: &str) -> anyhow::Result<()> 
     .typed_get::<ContentLength>()
     .map_or(0, |content_length| content_length.0.cast_signed());
   sapi_globals.request_info.content_type =
-    head.headers.typed_get::<ContentType>().map_or(std::ptr::null_mut(), |content_type| {
-      CString::new(content_type.to_string()).unwrap().into_raw()
-    });
+    head.headers.typed_get::<ContentType>().map_or(Ok(std::ptr::null_mut()), |content_type| {
+      CString::new(content_type.to_string()).map(|content_type| content_type.into_raw())
+    })?;
 
   if let Some(auth) = head.headers.get("Authorization") {
     unsafe {
@@ -143,7 +146,7 @@ fn init_sapi_globals(head: &Parts, path_translated: &str) -> anyhow::Result<()> 
 }
 
 #[instrument(skip(context), err)]
-fn execute_php(context: Context) -> anyhow::Result<()> {
+fn execute_php(context: Context) -> Result<(), PhpError> {
   let script = context.root().join(context.route().script_name().trim_start_matches("/"));
 
   let context_raw = Box::into_raw(Box::new(context));
@@ -151,7 +154,7 @@ fn execute_php(context: Context) -> anyhow::Result<()> {
   SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
 
   if unsafe { php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
-    bail!("php_request_startup failed");
+    return Err(PhpError::RequestStartupFailed);
   }
 
   let catch = try_catch_first(|| {
@@ -165,13 +168,13 @@ fn execute_php(context: Context) -> anyhow::Result<()> {
   unsafe { php_request_shutdown(std::ptr::null_mut()) }
 
   if let Err(e) = catch {
-    return Err(anyhow!("{:?}", e));
+    error!("catch failed: {:?}", e);
   }
 
   // Validate server_context before using
   let server_context = SapiGlobals::get().server_context;
   if server_context.is_null() || server_context != context_raw.cast::<c_void>() {
-    bail!("Server context corrupted during execution");
+    return Err(PhpError::ServerContextCorrupted);
   }
 
   let context = Context::from_server_context(server_context);
