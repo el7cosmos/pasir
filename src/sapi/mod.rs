@@ -223,12 +223,12 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
 extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
   unsafe {
-    let error_message = CStr::from_ptr(message);
+    let error_message = CStr::from_ptr(message).to_string_lossy();
     match syslog_type_int {
-      0..=3 => error!("{error_message:?}"),
-      4 => warn!("{error_message:?}"),
-      5 | 6 => info!("{error_message:?}"),
-      7 => debug!("{error_message:?}"),
+      0..=3 => error!("{error_message}"),
+      4 => warn!("{error_message}"),
+      5 | 6 => info!("{error_message}"),
+      7 => debug!("{error_message}"),
       _ => (),
     };
   }
