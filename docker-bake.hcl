@@ -19,6 +19,7 @@ target "debian" {
     variant = ["trixie", "bookworm", "bullseye"]
   }
   args = {
+    PASIR_VERSION = join(".", PASIR_VERSION)
     PHP_VERSION = join(".", PHP_VERSION)
     RUST_VERSION = join(".", RUST_VERSION)
     VARIANT = variant
