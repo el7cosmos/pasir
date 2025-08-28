@@ -6,7 +6,7 @@ use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
 use ext_php_rs::ffi::{
   ZEND_RESULT_CODE_FAILURE, php_handle_auth_data, php_request_shutdown, php_request_startup,
 };
-use ext_php_rs::zend::{SapiGlobals, bailout, try_catch_first};
+use ext_php_rs::zend::{SapiGlobals, try_catch_first};
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty, Full};
@@ -182,6 +182,7 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
     trace!("finish request failed");
   }
 
+  SapiGlobals::get_mut().server_context = std::ptr::null_mut();
   Ok(())
 }
 

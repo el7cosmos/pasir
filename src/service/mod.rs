@@ -8,7 +8,10 @@ use tower::BoxError;
 use tower::timeout::error::Elapsed;
 
 pub(crate) mod php;
-pub(crate) mod router;
+mod router;
+
+pub(crate) use php::PhpService;
+pub(crate) use router::RouterService;
 
 type ResponseBody = UnsyncBoxBody<Bytes, Infallible>;
 type MapResult = Result<Response<ResponseBody>, BoxError>;

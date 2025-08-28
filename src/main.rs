@@ -6,10 +6,10 @@ mod util;
 use crate::config::Config;
 use crate::config::route::Routes;
 use crate::sapi::Sapi;
+use crate::service::PhpService;
+use crate::service::RouterService;
 #[cfg(not(php_zend_max_execution_timers))]
 use crate::service::map_result;
-use crate::service::php::PhpService;
-use crate::service::router::RouterService;
 use anyhow::bail;
 use cfg_if::cfg_if;
 use clap::Parser;
@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal::ctrl_c;
+use tokio::signal::unix::signal;
 use tower::ServiceBuilder;
 use tower::timeout::TimeoutLayer;
 use tower_http::ServiceBuilderExt;
@@ -66,14 +67,6 @@ async fn main() {
 }
 
 async fn start(config: Config) -> anyhow::Result<()> {
-  let routes = Arc::new(Routes::from_file(config.root().join("pasir.toml"))?);
-  let listener = TcpListener::bind((config.address(), config.port())).await?;
-  let http = Builder::new(TokioExecutor::new());
-  // the graceful watcher
-  let graceful = GracefulShutdown::new();
-  // when this signal completes, start shutdown
-  let mut signal = std::pin::pin!(ctrl_c());
-
   unsafe { ext_php_rs_sapi_startup() }
 
   let sapi = Sapi::new();
@@ -83,11 +76,16 @@ async fn start(config: Config) -> anyhow::Result<()> {
 
   info!("Pasir running on [http://{}:{}]", config.address(), config.port());
 
+  let routes = Arc::new(Routes::from_file(config.root().join("pasir.toml"))?);
+  let listener = TcpListener::bind((config.address(), config.port())).await?;
+  let http = Builder::new(TokioExecutor::new());
+  let graceful = GracefulShutdown::new();
+  let mut sigterm = signal(tokio::signal::unix::SignalKind::terminate())?;
+  let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+
   loop {
     tokio::select! {
       Ok((stream, socket)) = listener.accept() => {
-        let server = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-
         let php_service = PhpService::default();
         let serve_dir = ServeDir::new(config.root())
             .call_fallback_on_method_not_allowed(true)
@@ -126,7 +124,12 @@ async fn start(config: Config) -> anyhow::Result<()> {
         });
       },
 
-      _ = signal.as_mut() => {
+      _ = ctrl_c() => {
+        drop(listener);
+        info!("Starting graceful shutdown");
+        break;
+      }
+      _ = sigterm.recv() => {
         drop(listener);
         info!("Starting graceful shutdown");
         break;
