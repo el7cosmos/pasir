@@ -1,3 +1,4 @@
+ARG PASIR_VERSION=0.1.0
 ARG PHP_VERSION=8.1
 ARG RUST_VERSION=1
 ARG VARIANT=bookworm
@@ -23,7 +24,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --release
+RUN PASIR_VERSION=${PASIR_VERSION} cargo build --release
 
 FROM php:${PHP_VERSION}-zts-${VARIANT}
 

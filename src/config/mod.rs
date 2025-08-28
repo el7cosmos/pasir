@@ -7,7 +7,7 @@ use std::ffi::CStr;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Parser)]
-#[command(version, long_version = long_version(), about, author)]
+#[command(version = version(), long_version = long_version(), about, author)]
 pub(crate) struct Config {
   #[arg(
     default_value_os_t = std::env::current_dir().unwrap_or(PathBuf::from(".")),
@@ -40,10 +40,14 @@ impl Config {
   }
 }
 
+fn version() -> String {
+  env!("PASIR_VERSION").to_string()
+}
+
 fn long_version() -> String {
   format!(
     "{}\nPHP {}",
-    env!("CARGO_PKG_VERSION"),
+    env!("PASIR_VERSION"),
     CStr::from_bytes_with_nul(PHP_VERSION).unwrap().to_string_lossy()
   )
 }

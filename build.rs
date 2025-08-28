@@ -1,4 +1,5 @@
 use anyhow::{Context, bail};
+use std::env::var;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -83,11 +84,14 @@ fn find_php() -> anyhow::Result<PathBuf> {
 }
 
 fn main() -> anyhow::Result<()> {
-  println!("cargo::rustc-check-cfg=cfg(php_zend_max_execution_timers)");
+  println!("cargo:rerun-if-env-changed=PASIR_VERSION");
+  let version = var("PASIR_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+  dbg!(&version);
+  println!("cargo:rustc-env=PASIR_VERSION={version}");
 
+  println!("cargo::rustc-check-cfg=cfg(php_zend_max_execution_timers)");
   let php = find_php()?;
   let info = PHPInfo::get(&php)?;
-
   if info.zend_max_execution_timers()? {
     println!("cargo:rustc-cfg=php_zend_max_execution_timers");
   }
