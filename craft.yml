@@ -1,0 +1,6 @@
+php-version: 8.4
+extensions: "apcu,bcmath,calendar,ctype,curl,dba,dom,exif,fileinfo,filter,gd,iconv,intl,mbregex,mbstring,mysqli,mysqlnd,opcache,openssl,pcntl,pdo,pdo_mysql,pdo_pgsql,pdo_sqlite,pgsql,phar,posix,readline,redis,session,simplexml,sockets,sodium,sqlite3,tokenizer,xml,xmlreader,xmlwriter,xsl,zip,zlib"
+sapi: cli,embed
+build-options:
+  enable-zts: true
+  with-added-patch: [ "patches/accel_find_sapi.php" ]
