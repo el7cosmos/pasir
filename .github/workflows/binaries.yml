@@ -1,0 +1,175 @@
+name: Binaries
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  #  build-alpine:
+  #    strategy:
+  #      fail-fast: false
+  #      matrix:
+  #        os: [ ubuntu-latest, ubuntu-24.04-arm ]
+  #        variant: [ alpine, gnu ]
+  #        include:
+  #          - os: ubuntu-24.04-arm
+  #            arch: aarch64
+  #            platform: linux/arm64
+  #          - os: ubuntu-latest
+  #            arch: x86_64
+  #            platform: linux/amd64
+  #          - variant: alpine
+  #            docker: cwcc-spc
+  #          - variant: gnu
+  #            docker: cwcc-spc-gnu
+  #
+  #    runs-on: ${{ matrix.os }}
+  #
+  #    container:
+  #      image: alpine:latest
+  #
+  #    steps:
+  #      - run: |
+  #          apk add --no-cache \
+  #            curl
+  #      - uses: actions/checkout@v5
+  #      - name: Download spc
+  #        run: |
+  #          curl -fsSL -o spc.tgz https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linux-${{ matrix.arch }}.tar.gz
+  #          tar -zxvf spc.tgz
+  #          rm spc.tgz
+  #          mkdir .bin
+  #          mv spc .bin
+  #          echo "$PWD/.bin" >> $GITHUB_PATH
+  #      - run: spc doctor
+  #      - uses: actions/cache/restore@v4
+  #        with:
+  #          path: downloads
+  #          key: ${{ runner.os }}-${{ runner.arch }}-spc
+  #          restore-keys: ${{ runner.os }}-${{ runner.arch }}-spc-
+  #      - run: |
+  #          spc craft
+  #          echo "$PWD/buildroot/bin" >> $GITHUB_PATH
+  #        env:
+  #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #      - uses: actions/cache/save@v4
+  #        with:
+  #          path: downloads
+  #          key: ${{ runner.os }}-${{ runner.arch }}-spc-${{ hashFiles('downloads/.lock.json') }}
+  #      - run: spc spc-config --libs
+
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, ubuntu-24.04-arm ]
+        variant: [ alpine, gnu ]
+        include:
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            platform: linux/arm64
+          - os: ubuntu-latest
+            arch: x86_64
+            platform: linux/amd64
+          - variant: alpine
+            docker: cwcc-spc
+          - variant: gnu
+            docker: cwcc-spc-gnu
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: 'crazywhalecc/static-php-cli'
+          ref: 2.7.1
+          #          path: spc
+          clean: false
+      - run: ls -la
+  #      - run: ./bin/spc-${{ matrix.variant }}-docker doctor
+  #        working-directory: spc
+  #      - uses: actions/cache/restore@v4
+  #        with:
+  #          path: spc/downloads
+  #          key: ${{ runner.os }}-${{ runner.arch }}-spc
+  #          restore-keys: ${{ runner.os }}-${{ runner.arch }}-spc-
+  #      - name: "SPC craft"
+  #        run: |
+  #          docker run --platform ${{ matrix.platform }} --rm -e GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+  #            -v $PWD/config:/app/config \
+  #            -v $PWD/src:/app/src \
+  #            -v $PWD/buildroot:/app/buildroot \
+  #            -v $PWD/source:/app/source \
+  #            -v $PWD/dist:/app/dist \
+  #            -v $PWD/downloads:/app/downloads \
+  #            -v $PWD/pkgroot:/app/pkgroot \
+  #            -v $PWD/../patches:/app/patches \
+  #            -v $PWD/../craft.yml:/app/craft.yml \
+  #            ${{ matrix.docker }}-${{ matrix.arch }}-v5 bin/spc craft
+  #          echo "$PWD/buildroot/bin" >> $GITHUB_PATH
+  #        working-directory: spc
+  #        env:
+  #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #      - uses: actions/cache/save@v4
+  #        with:
+  #          path: spc/downloads
+  #          key: ${{ runner.os }}-${{ runner.arch }}-spc-${{ hashFiles('spc/downloads/.lock.json') }}
+  #      - run: ./spc/bin/spc-${{ matrix.variant }}-docker spc-config
+  #  #      - uses: actions/cache@v4
+  #  #        with:
+  #  #          path: ~/.cargo
+  #  #          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+  #  #          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
+  #  #      - if: ${{ matrix.os == 'ubuntu-24.04-arm' }}
+  #  #        run: rustup update
+  #  #      - run: cargo build --features static --release -vvv
+
+  build-mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, macos-13 ]
+        include:
+          - os: macos-latest
+            arch: macos-aarch64
+          - os: macos-13
+            arch: macos-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download spc
+        run: |
+          curl -fsSL -o spc.tgz https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-${{ matrix.arch }}.tar.gz
+          tar -zxvf spc.tgz
+          rm spc.tgz
+          mkdir .bin
+          mv spc .bin
+          echo "$PWD/.bin" >> $GITHUB_PATH
+      - run: spc doctor
+      - uses: actions/cache/restore@v4
+        with:
+          path: downloads
+          key: ${{ runner.os }}-${{ runner.arch }}-spc
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-spc-
+      - run: |
+          spc craft
+          echo "$PWD/buildroot/bin" >> $GITHUB_PATH
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/cache/save@v4
+        with:
+          path: downloads
+          key: ${{ runner.os }}-${{ runner.arch }}-spc-${{ hashFiles('downloads/.lock.json') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - run: cargo build --features static --release -vvv

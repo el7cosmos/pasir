@@ -14,6 +14,7 @@ use anyhow::bail;
 use cfg_if::cfg_if;
 use clap::Parser;
 use ext_php_rs::embed::{ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup};
+#[cfg(not(php_zend_max_execution_timers))]
 use ext_php_rs::zend::ExecutorGlobals;
 use hyper::header::SERVER;
 use hyper::http::HeaderValue;
@@ -28,6 +29,7 @@ use tokio::net::TcpListener;
 use tokio::signal::ctrl_c;
 use tokio::signal::unix::signal;
 use tower::ServiceBuilder;
+#[cfg(not(php_zend_max_execution_timers))]
 use tower::timeout::TimeoutLayer;
 use tower_http::ServiceBuilderExt;
 use tower_http::request_id::MakeRequestUuid;

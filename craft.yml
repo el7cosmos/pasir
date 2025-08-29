@@ -4,3 +4,5 @@ sapi: cli,embed
 build-options:
   enable-zts: true
   with-added-patch: [ "patches/accel_find_sapi.php" ]
+download-options:
+  prefer-pre-built: true

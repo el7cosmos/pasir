@@ -1,10 +1,15 @@
+#[cfg(not(php_zend_max_execution_timers))]
 use crate::util::response_ext::ResponseExt;
 use bytes::Bytes;
 use http_body_util::combinators::UnsyncBoxBody;
+#[cfg(not(php_zend_max_execution_timers))]
 use http_body_util::{BodyExt, Empty};
+#[cfg(not(php_zend_max_execution_timers))]
 use hyper::Response;
 use std::convert::Infallible;
+#[cfg(not(php_zend_max_execution_timers))]
 use tower::BoxError;
+#[cfg(not(php_zend_max_execution_timers))]
 use tower::timeout::error::Elapsed;
 
 pub(crate) mod php;
@@ -14,6 +19,7 @@ pub(crate) use php::PhpService;
 pub(crate) use router::RouterService;
 
 type ResponseBody = UnsyncBoxBody<Bytes, Infallible>;
+#[cfg(not(php_zend_max_execution_timers))]
 type MapResult = Result<Response<ResponseBody>, BoxError>;
 
 #[cfg(not(php_zend_max_execution_timers))]
