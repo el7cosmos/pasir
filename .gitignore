@@ -2,6 +2,7 @@
 
 # SPC
 /buildroot
-/source
 /downloads
 /log
+/pkgroot
+/source
