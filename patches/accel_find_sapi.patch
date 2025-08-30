@@ -1,0 +1,12 @@
+diff --git a/ext/opcache/ZendAccelerator.c b/ext/opcache/ZendAccelerator.c
+index 1e661314f20..c863c96cc10 100644
+--- a/ext/opcache/ZendAccelerator.c
++++ b/ext/opcache/ZendAccelerator.c
+@@ -2842,6 +2842,7 @@ static inline zend_result accel_find_sapi(void)
+ 		"fuzzer",
+ 		"frankenphp",
+ 		"ngx-php",
++		"pasir",
+ 		NULL
+ 	};
+ 	const char **sapi_name;

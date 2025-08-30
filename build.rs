@@ -1,5 +1,9 @@
 use anyhow::{Context, bail};
 use std::env::var;
+#[cfg(feature = "static")]
+use std::fs::File;
+#[cfg(feature = "static")]
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -83,10 +87,64 @@ fn find_php() -> anyhow::Result<PathBuf> {
   })
 }
 
+#[cfg(feature = "static")]
+fn find_spc() -> anyhow::Result<PathBuf> {
+  if let Some(path) = path_from_env("SPC") {
+    if !path.try_exists()? {
+      bail!("spc executable not found at {:?}", path);
+    }
+    return Ok(path);
+  }
+  find_executable("spc").with_context(|| {
+    "Could not find SPC executable. \
+    Please ensure `spc` is in your PATH or the `SPC` environment variable is set."
+  })
+}
+
+#[cfg(feature = "static")]
+fn build_spc() -> anyhow::Result<()> {
+  println!("cargo:rerun-if-env-changed=SPC");
+  let spc = find_spc()?;
+  let file = File::open("buildroot/build-extensions.json")?;
+  let reader = BufReader::new(file);
+  let extensions: Vec<String> = serde_json::from_reader(reader)?;
+
+  let output = Command::new(spc)
+    .arg("spc-config")
+    .arg(extensions.join(","))
+    .arg("--libs")
+    .output()
+    .expect("failed to run spc-config");
+
+  let flags = String::from_utf8(output.stdout).expect("invalid UTF-8 from spc-config");
+
+  for token in flags.split_whitespace() {
+    if let Some(path) = token.strip_prefix("-L") {
+      println!("cargo:rustc-link-search={}", path);
+    } else if let Some(lib) = token.strip_prefix("-l") {
+      println!("cargo:rustc-link-lib={}", lib);
+    } else if token == "-framework" {
+      // handled in next iteration, see below
+    }
+  }
+
+  // Special handling for `-framework X` pairs
+  let mut tokens = flags.split_whitespace().peekable();
+  while let Some(token) = tokens.next() {
+    if token == "-framework" {
+      if let Some(name) = tokens.peek() {
+        println!("cargo:rustc-link-lib=framework={name}");
+        tokens.next();
+      }
+    }
+  }
+
+  Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
   println!("cargo:rerun-if-env-changed=PASIR_VERSION");
   let version = var("PASIR_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
-  dbg!(&version);
   println!("cargo:rustc-env=PASIR_VERSION={version}");
 
   println!("cargo::rustc-check-cfg=cfg(php_zend_max_execution_timers)");
@@ -95,6 +153,9 @@ fn main() -> anyhow::Result<()> {
   if info.zend_max_execution_timers()? {
     println!("cargo:rustc-cfg=php_zend_max_execution_timers");
   }
+
+  #[cfg(feature = "static")]
+  build_spc()?;
 
   Ok(())
 }
