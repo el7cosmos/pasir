@@ -3,16 +3,17 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
-#  pull_request:
-#    branches: [ "main" ]
-#    paths:
-#      - '.cargo/**'
-#      - '.github/workflows/rust.yml'
-#      - 'src/**'
-#      - 'tests/**'
-#      - 'Cargo.*'
-#      - 'Cargo.*'
-#      - 'rustfmt.toml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.cargo/**'
+      - '.github/workflows/rust.yml'
+      - 'build.rs'
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.*'
+      - 'Cargo.*'
+      - 'rustfmt.toml'
 
 env:
   CARGO_TERM_COLOR: always

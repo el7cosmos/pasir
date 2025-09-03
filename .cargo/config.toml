@@ -1,2 +1,8 @@
+[target.aarch64-unknown-linux-musl]
+linker = "clang"
+
+[target.x86_64-unknown-linux-musl]
+linker = "clang"
+
 [env]
 EXT_PHP_RS_ALLOWED_BINDINGS = "PHP_VERSION,php_register_variable,php_handle_auth_data,php_handle_aborted_connection,php_output_end_all,zend_error"
