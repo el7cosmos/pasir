@@ -1,3 +1,5 @@
+ARG PASIR_VERSION=0.0.0
+
 FROM rust:alpine AS builder
 
 # Install dependencies
@@ -64,7 +66,7 @@ RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     --mount=type=cache,target=/pasir/pkgroot \
     spc craft
 
-RUN cargo build --features clang_static,static --no-default-features --release --target $(uname -m)-unknown-linux-musl; \
+RUN PASIR_VERSION=${PASIR_VERSION} cargo build --features clang_static,static --no-default-features --release --target $(uname -m)-unknown-linux-musl; \
     cp target/$(uname -m)-unknown-linux-musl/release/pasir /usr/local/bin/pasir
 
 FROM alpine:latest
