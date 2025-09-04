@@ -16,7 +16,7 @@ target "debian" {
   name       = "debian-${variant}"
   dockerfile = "Dockerfile"
   matrix = {
-    variant = ["trixie", "bookworm", "bullseye"]
+    variant = ["trixie", "bookworm"]
   }
   args = {
     PASIR_VERSION = join(".", PASIR_VERSION)
