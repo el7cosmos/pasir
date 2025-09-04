@@ -1,0 +1,103 @@
+name: Binaries
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - created
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, ubuntu-24.04-arm ]
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            target: aarch64-unknown-linux-musl
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: docker/musl.Dockerfile
+          load: true
+          push: false
+          secrets: github_token=${{ github.token }}
+          tags: pasir:musl
+      - run: docker cp $(docker run -d pasir:musl):/usr/local/bin/pasir ./pasir-${{ matrix.target }}
+      - run: gh release upload ${{ github.ref_name }} pasir-${{ matrix.target }} --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  apple-darwin:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, macos-13 ]
+        include:
+          - os: macos-latest
+            arch: macos-aarch64
+          - os: macos-13
+            arch: macos-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download spc
+        run: |
+          curl -fsSL -o spc.tgz https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-${{ matrix.arch }}.tar.gz
+          tar -zxvf spc.tgz
+          rm spc.tgz
+          mkdir .bin
+          mv spc .bin
+          echo "$PWD/.bin" >> $GITHUB_PATH
+      - uses: actions/cache/restore@v4
+        with:
+          path: downloads
+          key: ${{ runner.os }}-${{ runner.arch }}-spc
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-spc-
+      - run: spc doctor
+      - run: |
+          spc craft
+          echo "$PWD/buildroot/bin" >> $GITHUB_PATH
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: actions/cache/save@v4
+        with:
+          path: downloads
+          key: ${{ runner.os }}-${{ runner.arch }}-spc-${{ hashFiles('downloads/.lock.json') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - run: cargo build --features static --release
+      - id: target
+        run: echo "target=$(rustup target list --installed)" >> "$GITHUB_OUTPUT"
+      - run: cp target/release/pasir ./pasir-${{ steps.target.outputs.target }}
+      - run: gh release upload ${{ github.ref_name }} pasir-${{ steps.target.outputs.target }} --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
