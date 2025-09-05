@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+
 if [ "$1" = "--libs" ]; then
     /usr/bin/llvm-config "$@" "--system-libs" "--link-static"
 else

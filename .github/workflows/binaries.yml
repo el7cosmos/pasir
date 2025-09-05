@@ -95,7 +95,7 @@ jobs:
           path: ~/.cargo
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
-      - run: cargo build --features static --release
+      - run: cargo build --bins --features static --release
         env:
           PASIR_VERSION: ${{ github.ref_name }}
       - id: target
