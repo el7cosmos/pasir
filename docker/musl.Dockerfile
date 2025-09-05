@@ -2,46 +2,36 @@ ARG PASIR_VERSION=0.0.0
 
 FROM rust:alpine AS builder
 
-# Install dependencies
+# Install SPC dependencies
 RUN apk update; \
     apk upgrade -a; \
     apk add --no-cache \
+        # Required by SPC \
         autoconf \
         automake \
-        bash \
-        binutils \
         binutils-gold \
         bison \
-        build-base \
-        clang-dev \
-        clang-static \
         cmake \
-        compiler-rt \
         curl \
-        file \
         flex \
         g++ \
-        gcc \
-        gettext \
         gettext-dev \
         git \
-        jq \
-        libgcc \
-        libstdc++ \
         libtool \
-        libxml2-static \
         linux-headers \
+        make \
+        patch \
+        patchelf \
+        re2c \
+        # Required by Rust ecosystem \
+        clang-dev \
+        clang-static \
+        compiler-rt \
+        libxml2-static \
         lld \
         llvm-dev \
         llvm-static \
-        m4 \
-        make \
         ncurses-static \
-        patchelf \
-        pkgconfig \
-        re2c \
-        wget \
-        xz \
         zlib-static \
         zstd-static
 
@@ -66,8 +56,13 @@ RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     --mount=type=cache,target=/pasir/pkgroot \
     spc craft
 
-RUN PASIR_VERSION=${PASIR_VERSION} cargo build --features clang_static,static --no-default-features --release --target $(uname -m)-unknown-linux-musl; \
-    cp target/$(uname -m)-unknown-linux-musl/release/pasir /usr/local/bin/pasir
+RUN PASIR_VERSION=${PASIR_VERSION} cargo build \
+        --bins \
+        --features clang_static,static \
+        --no-default-features \
+        --release \
+        --target $(rustup target list --installed); \
+    cp target/$(rustup target list --installed)/release/pasir /usr/local/bin/pasir
 
 FROM alpine:latest
 

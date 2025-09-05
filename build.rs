@@ -104,27 +104,35 @@ fn find_spc() -> anyhow::Result<PathBuf> {
 }
 
 #[cfg(feature = "static")]
-fn find_spc_build_extensions() -> anyhow::Result<PathBuf> {
-  let path = path_from_env("SPC_BUILD_EXTENSIONS_JSON")
-    .unwrap_or(PathBuf::from("buildroot/build-extensions.json"));
+fn find_spc_build_json(env: &str, default: PathBuf) -> anyhow::Result<Vec<String>> {
+  let path = path_from_env(env).unwrap_or(default);
   if !path.try_exists()? {
-    bail!("spc build-extensions not found at {:?}", path);
+    bail!("spc build json not found at {:?}", path);
   }
-  Ok(path)
+  let file = File::open(path)?;
+  Ok(serde_json::from_reader(BufReader::new(file))?)
 }
 
 #[cfg(feature = "static")]
 fn build_spc() -> anyhow::Result<()> {
   println!("cargo:rerun-if-env-changed=SPC");
   println!("cargo:rerun-if-env-changed=SPC_BUILD_EXTENSIONS_JSON");
+  println!("cargo:rerun-if-env-changed=SPC_BUILD_LIBRARIES_JSON");
   let spc = find_spc()?;
-  let file = File::open(find_spc_build_extensions()?)?;
-  let reader = BufReader::new(file);
-  let extensions: Vec<String> = serde_json::from_reader(reader)?;
+  let extensions = find_spc_build_json(
+    "SPC_BUILD_EXTENSIONS_JSON",
+    PathBuf::from("buildroot/build-extensions.json"),
+  )?;
+  let libraries = find_spc_build_json(
+    "SPC_BUILD_LIBRARIES_JSON",
+    PathBuf::from("buildroot/build-libraries.json"),
+  )?;
 
   let output = Command::new(spc)
     .arg("spc-config")
     .arg(extensions.join(","))
+    .arg("--with-libs")
+    .arg(libraries.join(","))
     .arg("--libs")
     .output()
     .expect("failed to run spc-config");

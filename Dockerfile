@@ -24,7 +24,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN PASIR_VERSION=${PASIR_VERSION} cargo build --release
+RUN PASIR_VERSION=${PASIR_VERSION} cargo build --bins --release
 
 FROM php:${PHP_VERSION}-zts-${VARIANT}
 
