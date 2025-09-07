@@ -1,5 +1,5 @@
 use anyhow::{Context, bail};
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), feature = "static"))]
 use std::env::consts::ARCH;
 use std::env::var;
 #[cfg(feature = "static")]

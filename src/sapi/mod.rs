@@ -187,6 +187,10 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
     }
   }
 
+  if sapi_globals.server_context.is_null() {
+    return;
+  }
+
   let context = Context::from_server_context(sapi_globals.server_context);
   let root = context.root().to_str().unwrap_or_default();
   let script_name = context.route().script_name();

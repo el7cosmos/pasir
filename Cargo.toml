@@ -7,7 +7,6 @@ build = "build.rs"
 [dependencies]
 anyhow = "1.0.98"
 bytes = "1.10.1"
-cfg-if = "1.0.3"
 clap = { version = "4.5.41", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
 clap-verbosity-flag = { version = "3.0.3", default-features = false, features = ["tracing"] }
 ext-php-rs = { version = "0.14.2", default-features = false, features = ["embed"] }
@@ -16,6 +15,7 @@ headers = "0.4.1"
 http-body-util = "0.1.3"
 hyper = { version = "1.6.0", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1.15", features = ["server-auto", "service", "tokio", "server-graceful"] }
+nu-ansi-term = "0.50.1"
 regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.16"

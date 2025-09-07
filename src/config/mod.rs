@@ -16,10 +16,12 @@ pub(crate) struct Config {
   root: PathBuf,
   #[arg(short, long, env = "PASIR_ADDRESS", default_value_os_t = std::net::Ipv4Addr::LOCALHOST.to_string())]
   address: String,
-  #[arg(short, long, env = "PASIR_PORT", required = true)]
-  port: u16,
+  #[arg(short, long, env = "PASIR_PORT", required_unless_present = "module")]
+  port: Option<u16>,
   #[command(flatten)]
   verbosity: Verbosity<InfoLevel>,
+  #[arg(short, help = "Show compiled in modules")]
+  module: bool,
 }
 
 impl Config {
@@ -31,12 +33,16 @@ impl Config {
     &self.address
   }
 
-  pub(crate) fn port(&self) -> u16 {
+  pub(crate) fn port(&self) -> Option<u16> {
     self.port
   }
 
   pub(crate) fn verbosity(&self) -> Verbosity<InfoLevel> {
     self.verbosity
+  }
+
+  pub(crate) fn is_module(&self) -> bool {
+    self.module
   }
 }
 
@@ -75,13 +81,14 @@ mod tests {
       let config = Config {
         root: root.clone(),
         address: address.to_string(),
-        port,
+        port: Some(port),
         verbosity: Verbosity::new(verbose, quiet),
+        module: false,
       };
 
       assert_eq!(config.root(), root);
       assert_eq!(config.address(), address.to_string());
-      assert_eq!(config.port(), port);
+      assert_eq!(config.port(), Some(port));
 
       let expected = match (verbose as i16) - (quiet as i16) {
         -3 => VerbosityFilter::Off,
