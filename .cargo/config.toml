@@ -5,4 +5,4 @@ linker = "clang"
 linker = "clang"
 
 [env]
-EXT_PHP_RS_ALLOWED_BINDINGS = "PHP_VERSION,php_register_variable,php_handle_auth_data,php_handle_aborted_connection,php_output_end_all,zend_error"
+EXT_PHP_RS_ALLOWED_BINDINGS = "PHP_VERSION,php_register_variable,php_handle_auth_data,php_handle_aborted_connection,php_output_end_all,module_registry,zend_extension,zend_extensions,zend_error"
