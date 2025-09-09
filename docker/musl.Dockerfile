@@ -43,18 +43,25 @@ RUN curl -fsSL https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linu
 ENV CC=clang \
     CXX=clang++ \
     LLVM_CONFIG_PATH=/pasir/llvm-config \
-    PATH=/pasir/buildroot/bin:$PATH
+    BUILD_ROOT_PATH=/spc/buildroot \
+    PKG_ROOT_PATH=/spc/pkgroot \
+    SOURCE_PATH=/spc/source \
+    DOWNLOAD_PATH=/spc/downloads \
+    SPC_BUILD_EXTENSIONS_JSON=/spc/buildroot/ \
+    PATH=/spc/buildroot/bin:$PATH
+
+WORKDIR /spc
+
+COPY craft.yml /spc/craft.yml
+COPY patches /spc/patches
+
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN spc doctor
+
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN spc craft
 
 WORKDIR /pasir
 
 COPY . .
-
-RUN spc doctor
-
-RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    --mount=type=cache,target=/pasir/downloads \
-    --mount=type=cache,target=/pasir/pkgroot \
-    spc craft
 
 RUN PASIR_VERSION=${PASIR_VERSION} cargo build \
         --bins \
@@ -64,7 +71,7 @@ RUN PASIR_VERSION=${PASIR_VERSION} cargo build \
         --target $(rustup target list --installed); \
     cp target/$(rustup target list --installed)/release/pasir /usr/local/bin/pasir
 
-FROM alpine:latest
+FROM busybox:stable
 
 WORKDIR /pasir
 

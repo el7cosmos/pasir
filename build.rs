@@ -1,6 +1,4 @@
 use anyhow::{Context, bail};
-#[cfg(all(not(target_os = "macos"), feature = "static"))]
-use std::env::consts::ARCH;
 use std::env::var;
 #[cfg(feature = "static")]
 use std::fs::File;
@@ -104,29 +102,22 @@ fn find_spc() -> anyhow::Result<PathBuf> {
 }
 
 #[cfg(feature = "static")]
-fn find_spc_build_json(env: &str, default: PathBuf) -> anyhow::Result<Vec<String>> {
-  let path = path_from_env(env).unwrap_or(default);
-  if !path.try_exists()? {
-    bail!("spc build json not found at {:?}", path);
+fn find_spc_build_json(json: &str) -> anyhow::Result<Vec<String>> {
+  let buildroot = path_from_env("BUILD_ROOT_PATH").unwrap_or(PathBuf::from("buildroot"));
+  if !buildroot.try_exists()? {
+    bail!("spc buildroot not found at {:?}", buildroot);
   }
-  let file = File::open(path)?;
+  let file = File::open(buildroot.join(json))?;
   Ok(serde_json::from_reader(BufReader::new(file))?)
 }
 
 #[cfg(feature = "static")]
 fn build_spc() -> anyhow::Result<()> {
   println!("cargo:rerun-if-env-changed=SPC");
-  println!("cargo:rerun-if-env-changed=SPC_BUILD_EXTENSIONS_JSON");
-  println!("cargo:rerun-if-env-changed=SPC_BUILD_LIBRARIES_JSON");
+  println!("cargo:rerun-if-env-changed=BUILD_ROOT_PATH");
   let spc = find_spc()?;
-  let extensions = find_spc_build_json(
-    "SPC_BUILD_EXTENSIONS_JSON",
-    PathBuf::from("buildroot/build-extensions.json"),
-  )?;
-  let libraries = find_spc_build_json(
-    "SPC_BUILD_LIBRARIES_JSON",
-    PathBuf::from("buildroot/build-libraries.json"),
-  )?;
+  let extensions = find_spc_build_json("build-extensions.json")?;
+  let libraries = find_spc_build_json("build-libraries.json")?;
 
   let output = Command::new(spc)
     .arg("spc-config")
@@ -134,44 +125,35 @@ fn build_spc() -> anyhow::Result<()> {
     .arg("--with-libs")
     .arg(libraries.join(","))
     .arg("--libs")
+    .arg("--absolute-libs")
     .output()
     .expect("failed to run spc-config");
 
   let flags = String::from_utf8(output.stdout).expect("invalid UTF-8 from spc-config");
-  link_flags(flags);
+
+  let mut tokens = flags.split_whitespace().peekable();
+  while let Some(token) = tokens.next() {
+    if let Some(path) = token.strip_prefix("-L") {
+      println!("cargo:rustc-link-search={}", path);
+    } else if let Some(lib) = token.strip_prefix("-l") {
+      println!("cargo:rustc-link-lib={lib}");
+    } else if token.ends_with(".a") {
+      println!("cargo:rustc-link-arg={token}");
+    } else if token == "-framework"
+      && let Some(name) = tokens.peek()
+    {
+      println!("cargo:rustc-link-lib=framework={name}");
+      tokens.next();
+    }
+  }
+
+  link_flags();
 
   Ok(())
 }
 
 #[cfg(all(target_os = "macos", feature = "static"))]
-fn link_flags(flags: String) {
-  for token in flags.split_whitespace() {
-    if let Some(path) = token.strip_prefix("-L") {
-      println!("cargo:rustc-link-search={}", path);
-    } else if let Some(lib) = token.strip_prefix("-l") {
-      match lib {
-        "c" | "c++" | "resolv" => println!("cargo:rustc-link-lib={}", lib),
-        "m" | "pthread" => (),
-        _ => println!("cargo:rustc-link-lib=static={}", lib),
-      }
-    } else if token == "-framework" {
-      // handled in next iteration, see below
-    }
-  }
-
-  // Special handling for `-framework X` pairs
-  let mut tokens = flags.split_whitespace().peekable();
-  while let Some(token) = tokens.next() {
-    if token == "-framework" {
-      if let Some(name) = tokens.peek() {
-        println!("cargo:rustc-link-lib=framework={name}");
-        tokens.next();
-      }
-    }
-  }
-
-  println!("cargo:rustc-link-lib=System");
-
+fn link_flags() {
   // Extra step only for Intel macOS (x86_64)
   #[cfg(target_arch = "x86_64")]
   {
@@ -188,34 +170,11 @@ fn link_flags(flags: String) {
   }
 }
 
-#[cfg(all(not(target_os = "macos"), feature = "static"))]
-fn link_flags(flags: String) {
+#[cfg(all(target_env = "musl", feature = "static"))]
+fn link_flags() {
   println!("cargo:rustc-link-arg=-fuse-ld=lld");
-
-  for token in flags.split_whitespace() {
-    if let Some(path) = token.strip_prefix("-L") {
-      println!("cargo:rustc-link-search={}", path);
-    } else if let Some(lib) = token.strip_prefix("-l") {
-      match lib {
-        "dl" | "m" | "pthread" | "stdc++" | "c" => (),
-        _ => println!("cargo:rustc-link-lib=static={}", lib),
-      }
-    } else if token.ends_with(".a") {
-      // absolute .a file → link directly
-      println!("cargo:rustc-link-arg={}", token);
-    }
-  }
-
-  // System libraries
-  println!("cargo:rustc-link-search=/usr/lib");
   println!("cargo:rustc-link-search=/usr/lib/clang/20/lib/linux");
-  println!("cargo:rustc-link-lib=static=pthread");
-  println!("cargo:rustc-link-lib=static=m");
-  println!("cargo:rustc-link-lib=static=dl");
-  println!("cargo:rustc-link-lib=static=stdc++");
-
-  println!("cargo:rustc-link-lib=static=c");
-  println!("cargo:rustc-link-lib=static=clang_rt.builtins-{}", ARCH);
+  println!("cargo:rustc-link-lib=clang_rt.builtins-{}", std::env::consts::ARCH);
 }
 
 fn main() -> anyhow::Result<()> {
