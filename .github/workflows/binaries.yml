@@ -69,12 +69,14 @@ jobs:
       - uses: actions/checkout@v5
       - name: Download spc
         run: |
-          curl -fsSL -o spc.tgz https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-${{ matrix.arch }}.tar.gz
-          tar -zxvf spc.tgz
-          rm spc.tgz
+          gh release download 2.7.2 -R crazywhalecc/static-php-cli --pattern "spc-${{ matrix.arch }}.tar.gz"
+          tar -zxvf spc-${{ matrix.arch }}.tar.gz
+          rm spc-${{ matrix.arch }}.tar.gz
           mkdir .bin
           mv spc .bin
           echo "$PWD/.bin" >> $GITHUB_PATH
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: actions/cache/restore@v4
         with:
           path: downloads
