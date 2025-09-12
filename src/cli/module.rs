@@ -1,16 +1,17 @@
 use crate::cli::Executable;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
+use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::ffi::module_registry;
 use ext_php_rs::ffi::zend_extension;
 use ext_php_rs::ffi::zend_extensions;
 use ext_php_rs::ffi::zend_module_entry;
+use ext_php_rs::zend::ExecutorGlobals;
 use nu_ansi_term::Color;
 use pasir::error::PhpError;
 use std::borrow::Cow;
 use std::ffi::CStr;
 use std::io::Write;
 
-#[derive(Clone, Debug)]
 pub struct Module {}
 
 impl Module {
@@ -50,6 +51,9 @@ impl Module {
     for extension in extensions {
       writeln!(handle, "{}", extension)?;
     }
+
+    ExecutorGlobals::get_mut().exit_status = ZEND_RESULT_CODE_SUCCESS;
+    unsafe { ext_php_rs::ffi::php_output_end_all() }
 
     Ok(())
   }

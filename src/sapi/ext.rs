@@ -35,7 +35,7 @@ mod tests {
   use std::os::raw::c_int;
 
   trait SapiHeadersTestExt {
-    fn new(rc: c_int) -> SapiHeaders;
+    fn new(rc: c_int) -> Self;
   }
 
   impl SapiHeadersTestExt for SapiHeaders {
