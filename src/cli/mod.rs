@@ -1,0 +1,140 @@
+mod module;
+pub mod serve;
+
+use crate::cli::module::Module;
+use crate::cli::serve::Serve;
+use crate::sapi::Sapi;
+use clap_verbosity_flag::InfoLevel;
+use clap_verbosity_flag::Verbosity;
+use ext_php_rs::ffi::PHP_VERSION;
+use std::ffi::CStr;
+use std::path::PathBuf;
+
+pub trait Executable {
+  async fn execute(self) -> anyhow::Result<()>;
+}
+
+#[derive(Clone, Debug, clap::Parser)]
+#[command(version = version(), long_version = long_version(), about, author)]
+pub struct Cli {
+  #[arg(
+    default_value_os_t = std::env::current_dir().unwrap_or(PathBuf::from(".")),
+    value_parser = validate_root,
+  )]
+  root: PathBuf,
+  #[arg(short, long, env = "PASIR_ADDRESS", default_value_os_t = std::net::Ipv4Addr::LOCALHOST.to_string())]
+  address: String,
+  #[arg(short, long, env = "PASIR_PORT", required_unless_present = "module")]
+  port: Option<u16>,
+  #[arg(short, help = "Show compiled in modules")]
+  module: bool,
+  #[command(flatten)]
+  verbosity: Verbosity<InfoLevel>,
+}
+
+impl Cli {
+  pub(crate) fn verbosity(&self) -> Verbosity<InfoLevel> {
+    self.verbosity
+  }
+
+  fn shutdown(sapi: Sapi) {
+    sapi.shutdown();
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
+  }
+}
+
+impl Executable for Cli {
+  async fn execute(self) -> anyhow::Result<()> {
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
+
+    let sapi = Sapi::new();
+    if sapi.startup().is_err() {
+      anyhow::bail!("Failed to start PHP SAPI module");
+    };
+
+    let result = match self.module {
+      true => Module {}.execute().await,
+      false => {
+        Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root)
+          .execute()
+          .await
+      }
+    };
+
+    Self::shutdown(sapi);
+
+    result
+  }
+}
+
+fn version() -> String {
+  env!("PASIR_VERSION").to_string()
+}
+
+fn long_version() -> String {
+  format!(
+    "{}\nPHP {}",
+    env!("PASIR_VERSION"),
+    CStr::from_bytes_with_nul(PHP_VERSION).unwrap().to_string_lossy()
+  )
+}
+
+fn validate_root(arg: &str) -> Result<PathBuf, std::io::Error> {
+  PathBuf::from(arg).canonicalize().and_then(|root| {
+    if !root.is_dir() {
+      return Err(std::io::Error::from(std::io::ErrorKind::NotADirectory));
+    }
+    Ok(root)
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::cli::Cli;
+  use crate::cli::long_version;
+  use crate::cli::validate_root;
+  use clap_verbosity_flag::Verbosity;
+  use clap_verbosity_flag::VerbosityFilter;
+  use proptest::prelude::*;
+  use std::net::Ipv4Addr;
+  use std::path::PathBuf;
+
+  proptest! {
+    #[test]
+    fn test_config(root: PathBuf, address: Ipv4Addr, port: u16, verbose in 0..3u8, quiet in 0..=3u8) {
+      let cli = Cli {
+        root: root.clone(),
+        address: address.to_string(),
+        port: Some(port),
+        verbosity: Verbosity::new(verbose, quiet),
+        module: false,
+      };
+
+      let expected = match (verbose as i16) - (quiet as i16) {
+        -3 => VerbosityFilter::Off,
+        -2 => VerbosityFilter::Error,
+        -1 => VerbosityFilter::Warn,
+        0 => VerbosityFilter::Info,
+        1 => VerbosityFilter::Debug,
+        2 => VerbosityFilter::Trace,
+        _ => unreachable!(),
+      };
+      assert_eq!(cli.verbosity().filter(), expected);
+    }
+  }
+
+  #[test]
+  fn test_long_version() {
+    assert!(long_version().starts_with(format!("{}\nPHP", env!("CARGO_PKG_VERSION")).as_str()));
+  }
+
+  #[test]
+  fn test_validate_root() {
+    // Not found.
+    assert!(validate_root("./tests/foo").is_err());
+    // Not a directory.
+    assert!(validate_root("./tests/fixtures/routes.toml").is_err());
+    // Root exists and is a directory.
+    assert!(validate_root("tests/fixtures").is_ok());
+  }
+}

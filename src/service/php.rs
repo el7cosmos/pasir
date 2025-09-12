@@ -1,28 +1,46 @@
-use crate::Stream;
-use crate::sapi::context::{Context, ContextGuard, ContextSender, ResponseType};
+use crate::cli::serve::Stream;
+use crate::sapi::context::Context;
+use crate::sapi::context::ContextGuard;
+use crate::sapi::context::ContextSender;
+use crate::sapi::context::ResponseType;
 use crate::util::response_ext::ResponseExt;
 use bytes::Bytes;
-use ext_php_rs::embed::{Embed, ext_php_rs_sapi_per_thread_init};
-use ext_php_rs::ffi::{
-  ZEND_RESULT_CODE_FAILURE, php_handle_auth_data, php_request_shutdown, php_request_startup,
-};
-use ext_php_rs::zend::{SapiGlobals, try_catch_first};
-use headers::{ContentLength, ContentType, HeaderMapExt};
+use ext_php_rs::embed::Embed;
+use ext_php_rs::embed::ext_php_rs_sapi_per_thread_init;
+use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
+use ext_php_rs::ffi::php_handle_auth_data;
+use ext_php_rs::ffi::php_request_shutdown;
+use ext_php_rs::ffi::php_request_startup;
+use ext_php_rs::zend::SapiGlobals;
+use ext_php_rs::zend::try_catch_first;
+use headers::ContentLength;
+use headers::ContentType;
+use headers::HeaderMapExt;
+use http_body_util::BodyExt;
+use http_body_util::Empty;
+use http_body_util::Full;
 use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Empty, Full};
+use hyper::Request;
+use hyper::Response;
+use hyper::StatusCode;
+use hyper::Version;
 use hyper::body::Incoming;
 use hyper::http::request::Parts;
-use hyper::{Request, Response, StatusCode, Version};
 use pasir::error::PhpError;
 use std::convert::Infallible;
-use std::ffi::{CString, NulError, c_void};
+use std::ffi::CString;
+use std::ffi::NulError;
+use std::ffi::c_void;
 use std::os::raw::c_int;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
 use tower::Service;
-use tracing::{error, instrument, trace};
+use tracing::error;
+use tracing::instrument;
+use tracing::trace;
 
 #[derive(Clone, Default)]
 pub(crate) struct PhpService {}

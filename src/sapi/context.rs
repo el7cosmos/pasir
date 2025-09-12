@@ -1,22 +1,30 @@
-use crate::Stream;
+use crate::cli::serve::Stream;
 use crate::sapi::ext::FromSapiHeaders;
 use crate::sapi::util::handle_abort_connection;
 use crate::service::php::PhpRoute;
 use bytes::Bytes;
 use ext_php_rs::ffi::php_output_end_all;
 use ext_php_rs::zend::SapiGlobals;
+use hyper::HeaderMap;
+use hyper::Request;
+use hyper::Response;
+use hyper::StatusCode;
+use hyper::Version;
 use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
 use hyper::http::HeaderValue;
 use hyper::http::response::Parts;
-use hyper::{HeaderMap, Request, Response, StatusCode, Version};
-use pasir::unbound_channel::{Sender, UnboundChannel};
+use pasir::unbound_channel::Sender;
+use pasir::unbound_channel::UnboundChannel;
 use std::ffi::c_void;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::oneshot::{Receiver, Sender as OneShotSender};
-use tracing::{debug, instrument};
+use tokio::sync::oneshot::Receiver;
+use tokio::sync::oneshot::Sender as OneShotSender;
+use tracing::debug;
+use tracing::instrument;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) enum ResponseType {
@@ -62,11 +70,11 @@ impl Context {
   }
 
   pub(crate) fn local_addr(&self) -> SocketAddr {
-    self.stream.local_addr
+    self.stream.local_addr()
   }
 
   pub(crate) fn peer_addr(&self) -> SocketAddr {
-    self.stream.peer_addr
+    self.stream.peer_addr()
   }
 
   pub(crate) fn headers(&self) -> &HeaderMap {
