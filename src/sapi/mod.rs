@@ -51,8 +51,8 @@ unsafe impl Send for Sapi {}
 unsafe impl Sync for Sapi {}
 
 impl Sapi {
-  pub(crate) fn new(php_info_as_text: bool) -> Self {
-    let builder = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
+  pub(crate) fn new(php_info_as_text: bool, ini_entries: Option<String>) -> Self {
+    let mut builder = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
       .startup_function(startup)
       .shutdown_function(shutdown)
       .ub_write_function(ub_write)
@@ -63,6 +63,11 @@ impl Sapi {
       .register_server_variables_function(register_server_variables)
       .log_message_function(log_message)
       .get_request_time_function(get_request_time);
+
+    if let Some(entries) = ini_entries {
+      builder = builder.ini_entries(entries);
+    }
+
     let mut sapi_module = builder.build().unwrap();
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.sapi_error = Some(zend_error);
@@ -71,14 +76,20 @@ impl Sapi {
 
   pub(crate) fn startup(self) -> Result<(), ()> {
     unsafe {
+      let ini_entries = match (*self.0).ini_entries.is_null() {
+        true => None,
+        false => Some((*self.0).ini_entries),
+      };
       sapi_startup(self.0);
-      match (*self.0).startup {
-        None => Ok(()),
-        Some(startup) => match startup(self.0) {
-          ZEND_RESULT_CODE_SUCCESS => Ok(()),
-          ZEND_RESULT_CODE_FAILURE => Err(()),
-          _ => Err(()),
-        },
+      if let Some(entries) = ini_entries {
+        (*self.0).ini_entries = entries
+      }
+
+      let startup = (*self.0).startup.expect("startup function is null");
+      match startup(self.0) {
+        ZEND_RESULT_CODE_SUCCESS => Ok(()),
+        ZEND_RESULT_CODE_FAILURE => Err(()),
+        _ => Err(()),
       }
     }
   }
@@ -352,7 +363,7 @@ pub(crate) mod tests {
   /// This tests the core SAPI functionality of creating a new SAPI module instance
   #[test]
   fn test_sapi_new() {
-    let sapi = Sapi::new(false);
+    let sapi = Sapi::new(false, None);
 
     // Verify that the SAPI module pointer is not null
     assert!(!sapi.0.is_null(), "SAPI module should not be null after creation");
@@ -400,8 +411,8 @@ pub(crate) mod tests {
   /// This ensures SAPI creation is properly isolated
   #[test]
   fn test_multiple_sapi_instances() {
-    let sapi1 = Sapi::new(false);
-    let sapi2 = Sapi::new(false);
+    let sapi1 = Sapi::new(false, None);
+    let sapi2 = Sapi::new(false, None);
 
     // Verify both instances have valid, different pointers
     assert!(!sapi1.0.is_null(), "First SAPI instance should be valid");
