@@ -35,17 +35,17 @@ existing PHP applications.
 
 - **PHP**: Version 8.1+ compiled with `--disable-zend-signals --enable-embed --enable-zts`
 
+#### Using Pre-built Binaries
+
+Pre-built binaries can be downloaded from the [latest release](https://github.com/el7cosmos/pasir/releases).
+The binaries are built on the latest PHP version and are statically linked, meaning they won't be able to load dynamic
+extensions.
+To view the list of installed extensions, run `pasir -m` command.
+
 #### Using Homebrew
 
 ```bash
 brew install el7cosmos/pasir/pasir
-```
-
-#### Using Pre-built Binaries
-
-```bash
-# Download the latest release from GitHub
-# Extract and place the binary in your PATH
 ```
 
 #### Using Docker Images
