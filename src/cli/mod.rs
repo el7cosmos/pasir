@@ -21,17 +21,19 @@ pub trait Executable {
 pub struct Cli {
   #[arg(
     default_value_os_t = std::env::current_dir().unwrap_or(PathBuf::from(".")),
-    value_parser = validate_root,
+    value_parser = parse_root,
   )]
   root: PathBuf,
   #[arg(short, long, env = "PASIR_ADDRESS", default_value_os_t = std::net::Ipv4Addr::LOCALHOST.to_string())]
   address: String,
-  #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "module"])]
+  #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "modules"])]
   port: Option<u16>,
-  #[arg(short, help = "PHP information", conflicts_with = "module")]
+  #[arg(short, long, help = "Define INI entry foo with value 'bar'", value_name = "foo[=bar]", value_parser = parse_define)]
+  define: Vec<String>,
+  #[arg(short, long, help = "PHP information and configuration", conflicts_with = "modules")]
   info: bool,
-  #[arg(short, help = "Show compiled in modules", conflicts_with = "info")]
-  module: bool,
+  #[arg(short, long, help = "Show compiled in modules", conflicts_with = "info")]
+  modules: bool,
   #[command(flatten)]
   verbosity: Verbosity<InfoLevel>,
 }
@@ -51,14 +53,19 @@ impl Executable for Cli {
   async fn execute(self) -> anyhow::Result<()> {
     unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
 
-    let sapi = Sapi::new(self.info);
+    let ini_entries = match self.define.is_empty() {
+      true => None,
+      false => Some(self.define.join("\n")),
+    };
+
+    let sapi = Sapi::new(self.info, ini_entries);
     if sapi.startup().is_err() {
       anyhow::bail!("Failed to start PHP SAPI module");
     };
 
     let result = if self.info {
       Info {}.execute().await
-    } else if self.module {
+    } else if self.modules {
       Module {}.execute().await
     } else {
       Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root)
@@ -84,7 +91,7 @@ fn long_version() -> String {
   )
 }
 
-fn validate_root(arg: &str) -> Result<PathBuf, std::io::Error> {
+fn parse_root(arg: &str) -> Result<PathBuf, std::io::Error> {
   PathBuf::from(arg).canonicalize().and_then(|root| {
     if !root.is_dir() {
       return Err(std::io::Error::from(std::io::ErrorKind::NotADirectory));
@@ -93,11 +100,16 @@ fn validate_root(arg: &str) -> Result<PathBuf, std::io::Error> {
   })
 }
 
+fn parse_define(arg: &str) -> anyhow::Result<String> {
+  if arg.split_once('=').is_some() { Ok(arg.to_string()) } else { Ok(format!("{arg}=On")) }
+}
+
 #[cfg(test)]
 mod tests {
   use crate::cli::Cli;
   use crate::cli::long_version;
-  use crate::cli::validate_root;
+  use crate::cli::parse_define;
+  use crate::cli::parse_root;
   use clap_verbosity_flag::Verbosity;
   use clap_verbosity_flag::VerbosityFilter;
   use proptest::prelude::*;
@@ -111,8 +123,9 @@ mod tests {
         root: root.clone(),
         address: address.to_string(),
         port: Some(port),
+        define: vec![],
         info: false,
-        module: false,
+        modules: false,
         verbosity: Verbosity::new(verbose, quiet),
       };
 
@@ -135,12 +148,18 @@ mod tests {
   }
 
   #[test]
-  fn test_validate_root() {
+  fn test_parse_root() {
     // Not found.
-    assert!(validate_root("./tests/foo").is_err());
+    assert!(parse_root("./tests/foo").is_err());
     // Not a directory.
-    assert!(validate_root("./tests/fixtures/routes.toml").is_err());
+    assert!(parse_root("./tests/fixtures/routes.toml").is_err());
     // Root exists and is a directory.
-    assert!(validate_root("tests/fixtures").is_ok());
+    assert!(parse_root("tests/fixtures").is_ok());
+  }
+
+  #[test]
+  fn test_parse_define() {
+    assert_eq!(parse_define("foo").unwrap(), "foo=On");
+    assert_eq!(parse_define("foo=bar").unwrap(), "foo=bar");
   }
 }

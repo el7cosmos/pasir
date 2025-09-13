@@ -22,3 +22,24 @@ fn test_cli_module() -> Result<(), CargoError> {
 
   Ok(())
 }
+
+#[test]
+fn test_cli_define() -> Result<(), CargoError> {
+  let mut cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
+  cmd.arg("-i").arg("-dassert.active=Off").arg("-d").arg("assert.bail");
+  cmd
+    .assert()
+    .success()
+    .stdout(contains("assert.active => Off => Off"))
+    .stdout(contains("assert.bail => On => On"));
+
+  let mut cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
+  cmd.arg("-i").arg("--define").arg("assert.active=Off").arg("-dassert.bail");
+  cmd
+    .assert()
+    .success()
+    .stdout(contains("assert.active => Off => Off"))
+    .stdout(contains("assert.bail => On => On"));
+
+  Ok(())
+}

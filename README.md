@@ -124,15 +124,18 @@ PHP Application Server In Rust
 Usage: pasir [OPTIONS] --port <PORT> [ROOT]
 
 Arguments:
-  [ROOT]  [default: /Users/el7cosmos/src/pasir]
+  [ROOT]  [default: .]
 
 Options:
-  -a, --address <ADDRESS>  [env: PASIR_ADDRESS=] [default: 127.0.0.1]
-  -p, --port <PORT>        [env: PASIR_PORT=]
-  -v, --verbose...         Increase logging verbosity
-  -q, --quiet...           Decrease logging verbosity
-  -h, --help               Print help
-  -V, --version            Print version
+  -a, --address <ADDRESS>   [env: PASIR_ADDRESS=] [default: 127.0.0.1]
+  -p, --port <PORT>         [env: PASIR_PORT=]
+  -d, --define <foo[=bar]>  Define INI entry foo with value 'bar'
+  -i, --info                PHP information
+  -m, --modules             Show compiled in modules
+  -v, --verbose...          Increase logging verbosity
+  -q, --quiet...            Decrease logging verbosity
+  -h, --help                Print help
+  -V, --version             Print version
 ```
 
 ### Configuration
