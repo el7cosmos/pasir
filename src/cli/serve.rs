@@ -35,7 +35,7 @@ pub struct Stream {
 }
 
 impl Stream {
-  pub fn new(local_addr: SocketAddr, peer_addr: SocketAddr) -> Self {
+  fn new(local_addr: SocketAddr, peer_addr: SocketAddr) -> Self {
     Self { local_addr, peer_addr }
   }
 

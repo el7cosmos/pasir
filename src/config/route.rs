@@ -241,7 +241,7 @@ mod tests {
   #[test]
   fn test_default_routes() {
     let routes = Routes::from_file(PathBuf::from("tests/fixtures/foo.toml"));
-    assert_eq!(routes.is_ok(), true);
+    assert!(routes.is_ok());
     assert_eq!(routes.unwrap().routes.len(), 0);
   }
 
@@ -250,8 +250,8 @@ mod tests {
     let route = Route::default();
     let request = Request::<String>::default();
     let response = Response::<String>::default();
-    assert_eq!(route.matches_request(&request), true);
-    assert_eq!(route.matches_response(&response), true);
+    assert!(route.matches_request(&request));
+    assert!(route.matches_response(&response));
   }
 
   #[rstest]

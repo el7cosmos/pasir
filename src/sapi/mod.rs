@@ -5,25 +5,44 @@ mod variables;
 
 use crate::sapi::context::Context;
 use crate::sapi::util::handle_abort_connection;
+use crate::sapi::util::register_variable;
 use crate::sapi::variables::*;
-use bytes::{Bytes, BytesMut};
-use ext_php_rs::builders::{ModuleBuilder, SapiBuilder};
-use ext_php_rs::ffi::{
-  ZEND_RESULT_CODE_FAILURE, ZEND_RESULT_CODE_SUCCESS, php_module_shutdown, php_module_startup,
-  php_register_variable, sapi_shutdown, sapi_startup, zend_error,
-};
+use bytes::Bytes;
+use bytes::BytesMut;
+use ext_php_rs::builders::ModuleBuilder;
+use ext_php_rs::builders::SapiBuilder;
+use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
+use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
+use ext_php_rs::ffi::php_module_shutdown;
+use ext_php_rs::ffi::php_module_startup;
+use ext_php_rs::ffi::php_register_variable;
+use ext_php_rs::ffi::sapi_shutdown;
+use ext_php_rs::ffi::sapi_startup;
+use ext_php_rs::ffi::zend_error;
+use ext_php_rs::php_function;
+use ext_php_rs::php_module;
 use ext_php_rs::types::Zval;
-use ext_php_rs::zend::{SapiGlobals, SapiHeader, SapiModule};
-use ext_php_rs::{php_function, php_module, wrap_function};
-use headers::{HeaderMapExt, Host};
+use ext_php_rs::wrap_function;
+use ext_php_rs::zend::SapiGlobals;
+use ext_php_rs::zend::SapiHeader;
+use ext_php_rs::zend::SapiModule;
+use headers::HeaderMapExt;
+use headers::Host;
 use hyper::Uri;
 use hyper::header::{HeaderName, HeaderValue};
-use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::ffi::CStr;
+use std::ffi::CString;
+use std::ffi::c_char;
+use std::ffi::c_int;
+use std::ffi::c_void;
 use std::ops::Sub;
 use std::str::FromStr;
 use std::time::SystemTime;
-use tracing::{debug, error, info, instrument, warn};
-use util::register_variable;
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::instrument;
+use tracing::warn;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Sapi(pub(crate) *mut SapiModule);
@@ -32,7 +51,7 @@ unsafe impl Send for Sapi {}
 unsafe impl Sync for Sapi {}
 
 impl Sapi {
-  pub(crate) fn new() -> Self {
+  pub(crate) fn new(php_info_as_text: bool) -> Self {
     let builder = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
       .startup_function(startup)
       .shutdown_function(shutdown)
@@ -45,6 +64,7 @@ impl Sapi {
       .log_message_function(log_message)
       .get_request_time_function(get_request_time);
     let mut sapi_module = builder.build().unwrap();
+    sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.sapi_error = Some(zend_error);
     Self(sapi_module.into_raw())
   }
@@ -83,8 +103,24 @@ extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
-  if str.is_null() || str_length == 0 || SapiGlobals::get().server_context.is_null() {
+  if str.is_null() || str_length == 0 {
     return 0;
+  }
+
+  // Not in a server context, write to stdout.
+  if SapiGlobals::get().server_context.is_null() {
+    let mut bytes = unsafe { std::slice::from_raw_parts(str.cast(), str_length) }.to_vec();
+    if bytes.last() != Some(&0) {
+      bytes.push(0);
+    }
+
+    return match CStr::from_bytes_with_nul(&bytes) {
+      Ok(s) => {
+        print!("{}", s.to_string_lossy());
+        str_length
+      }
+      Err(_) => 0,
+    };
   }
 
   let context = Context::from_server_context(SapiGlobals::get().server_context);
@@ -288,9 +324,8 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
 #[cfg(test)]
 pub(crate) mod tests {
   use super::*;
-  use ext_php_rs::embed::{
-    ext_php_rs_sapi_per_thread_init, ext_php_rs_sapi_shutdown, ext_php_rs_sapi_startup,
-  };
+  use ext_php_rs::embed::ext_php_rs_sapi_shutdown;
+  use ext_php_rs::embed::ext_php_rs_sapi_startup;
 
   pub(crate) struct TestSapi(*mut SapiModule);
 
@@ -317,7 +352,7 @@ pub(crate) mod tests {
   /// This tests the core SAPI functionality of creating a new SAPI module instance
   #[test]
   fn test_sapi_new() {
-    let sapi = Sapi::new();
+    let sapi = Sapi::new(false);
 
     // Verify that the SAPI module pointer is not null
     assert!(!sapi.0.is_null(), "SAPI module should not be null after creation");
@@ -358,19 +393,15 @@ pub(crate) mod tests {
 
   #[test]
   fn test_ub_write() {
-    let _sapi = TestSapi::new();
-    unsafe { ext_php_rs_sapi_per_thread_init() }
     assert_eq!(ub_write(std::ptr::null_mut(), 0), 0);
-    let str = CString::new("hello").unwrap();
-    assert_eq!(ub_write(str.as_ptr(), "hello".len()), 0);
   }
 
   /// Test multiple SAPI instances can be created
   /// This ensures SAPI creation is properly isolated
   #[test]
   fn test_multiple_sapi_instances() {
-    let sapi1 = Sapi::new();
-    let sapi2 = Sapi::new();
+    let sapi1 = Sapi::new(false);
+    let sapi2 = Sapi::new(false);
 
     // Verify both instances have valid, different pointers
     assert!(!sapi1.0.is_null(), "First SAPI instance should be valid");

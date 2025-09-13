@@ -1,6 +1,8 @@
+mod info;
 mod module;
 pub mod serve;
 
+use crate::cli::info::Info;
 use crate::cli::module::Module;
 use crate::cli::serve::Serve;
 use crate::sapi::Sapi;
@@ -24,9 +26,11 @@ pub struct Cli {
   root: PathBuf,
   #[arg(short, long, env = "PASIR_ADDRESS", default_value_os_t = std::net::Ipv4Addr::LOCALHOST.to_string())]
   address: String,
-  #[arg(short, long, env = "PASIR_PORT", required_unless_present = "module")]
+  #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "module"])]
   port: Option<u16>,
-  #[arg(short, help = "Show compiled in modules")]
+  #[arg(short, help = "PHP information", conflicts_with = "module")]
+  info: bool,
+  #[arg(short, help = "Show compiled in modules", conflicts_with = "info")]
   module: bool,
   #[command(flatten)]
   verbosity: Verbosity<InfoLevel>,
@@ -47,18 +51,19 @@ impl Executable for Cli {
   async fn execute(self) -> anyhow::Result<()> {
     unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
 
-    let sapi = Sapi::new();
+    let sapi = Sapi::new(self.info);
     if sapi.startup().is_err() {
       anyhow::bail!("Failed to start PHP SAPI module");
     };
 
-    let result = match self.module {
-      true => Module {}.execute().await,
-      false => {
-        Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root)
-          .execute()
-          .await
-      }
+    let result = if self.info {
+      Info {}.execute().await
+    } else if self.module {
+      Module {}.execute().await
+    } else {
+      Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root)
+        .execute()
+        .await
     };
 
     Self::shutdown(sapi);
@@ -106,8 +111,9 @@ mod tests {
         root: root.clone(),
         address: address.to_string(),
         port: Some(port),
-        verbosity: Verbosity::new(verbose, quiet),
+        info: false,
         module: false,
+        verbosity: Verbosity::new(verbose, quiet),
       };
 
       let expected = match (verbose as i16) - (quiet as i16) {
