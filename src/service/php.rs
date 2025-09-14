@@ -185,7 +185,7 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
     }
   });
 
-  unsafe { php_request_shutdown(std::ptr::null_mut()) }
+  request_shutdown();
 
   if let Err(e) = catch {
     error!("catch failed: {:?}", e);
@@ -206,9 +206,30 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
   Ok(())
 }
 
+fn request_shutdown() {
+  unsafe { php_request_shutdown(std::ptr::null_mut()) }
+
+  let mut request_info = SapiGlobals::get().request_info;
+
+  free_ptr(&mut request_info.request_method.cast_mut());
+  free_ptr(&mut request_info.query_string);
+  free_ptr(&mut request_info.path_translated);
+  free_ptr(&mut request_info.request_uri);
+  free_ptr(&mut request_info.content_type.cast_mut());
+  free_ptr(&mut request_info.cookie_data);
+}
+
+// Helper to free and null a pointer we allocated with into_raw()
+fn free_ptr(ptr: &mut *mut std::os::raw::c_char) {
+  if !ptr.is_null() {
+    let _ = unsafe { CString::from_raw(*ptr) };
+    *ptr = std::ptr::null_mut();
+  }
+}
+
 /// Resolves a request URI to the appropriate PHP file and path info
 /// Returns PhpRoute with script_name and path_info
-pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> PhpRoute {
+fn resolve_php_index(document_root: &Path, request_uri: &str) -> PhpRoute {
   // Clean the request URI (remove query string, normalize slashes)
   let clean_uri = request_uri.split('?').next().unwrap_or(request_uri);
   let clean_uri = clean_uri.trim_start_matches('/').trim_end_matches('/');
