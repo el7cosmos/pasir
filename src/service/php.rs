@@ -39,7 +39,6 @@ use tracing::trace;
 
 use crate::cli::serve::Stream;
 use crate::sapi::context::Context;
-use crate::sapi::context::ContextGuard;
 use crate::sapi::context::ContextSender;
 use crate::sapi::context::ResponseType;
 use crate::util::response_ext::ResponseExt;
@@ -169,8 +168,7 @@ fn init_sapi_globals(head: &Parts, path_translated: &str) -> Result<(), NulError
 fn execute_php(context: Context) -> Result<(), PhpError> {
   let script = context.root().join(context.route().script_name().trim_start_matches("/"));
 
-  let context_raw = Box::into_raw(Box::new(context));
-  let _guard = ContextGuard(context_raw.cast::<c_void>());
+  let context_raw = context.into_raw();
   SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
 
   if unsafe { php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
@@ -197,12 +195,11 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
     return Err(PhpError::ServerContextCorrupted);
   }
 
-  let context = Context::from_server_context(server_context);
+  let mut context = unsafe { Context::from_raw(server_context) };
   if !context.is_request_finished() && !context.finish_request() {
     trace!("finish request failed");
   }
 
-  SapiGlobals::get_mut().server_context = std::ptr::null_mut();
   Ok(())
 }
 
