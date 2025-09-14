@@ -1,5 +1,4 @@
 use anyhow::{Context, bail};
-use std::env::var;
 #[cfg(feature = "static")]
 use std::fs::File;
 #[cfg(feature = "static")]
@@ -179,8 +178,9 @@ fn link_flags() {
 
 fn main() -> anyhow::Result<()> {
   println!("cargo:rerun-if-env-changed=PASIR_VERSION");
-  let version = var("PASIR_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
-  println!("cargo:rustc-env=PASIR_VERSION={version}");
+  if let Ok(version) = std::env::var("PASIR_VERSION") {
+    println!("cargo:rustc-env=CARGO_PKG_VERSION={version}");
+  }
 
   println!("cargo::rustc-check-cfg=cfg(php_zend_max_execution_timers)");
   let php = find_php()?;
