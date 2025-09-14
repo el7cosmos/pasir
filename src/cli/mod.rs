@@ -17,7 +17,7 @@ pub trait Executable {
 }
 
 #[derive(Clone, Debug, clap::Parser)]
-#[command(version = version(), long_version = long_version(), about, author)]
+#[command(version, long_version = long_version(), about, author)]
 pub struct Cli {
   #[arg(
     default_value_os_t = std::env::current_dir().unwrap_or(PathBuf::from(".")),
@@ -79,14 +79,10 @@ impl Executable for Cli {
   }
 }
 
-fn version() -> String {
-  env!("PASIR_VERSION").to_string()
-}
-
 fn long_version() -> String {
   format!(
     "{}\nPHP {}",
-    env!("PASIR_VERSION"),
+    env!("CARGO_PKG_VERSION"),
     CStr::from_bytes_with_nul(PHP_VERSION).unwrap().to_string_lossy()
   )
 }
