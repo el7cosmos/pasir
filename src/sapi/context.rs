@@ -58,8 +58,18 @@ impl Context {
     Self { root, route, stream, request, sender, response_head, request_finished: false }
   }
 
+  #[must_use = "losing the pointer will leak memory"]
+  pub(crate) fn into_raw(self) -> *mut Context {
+    Box::into_raw(Box::new(self))
+  }
+
+  #[must_use = "call `drop(Context::from_raw(ptr))` if you intend to drop the `Context`"]
+  pub(crate) unsafe fn from_raw(ptr: *mut c_void) -> Box<Self> {
+    unsafe { Box::from_raw(ptr.cast()) }
+  }
+
   pub(crate) fn from_server_context<'a>(server_context: *mut c_void) -> &'a mut Context {
-    let context = server_context.cast::<Self>();
+    let context = server_context.cast();
     unsafe { &mut *context }
   }
 
@@ -147,16 +157,10 @@ impl Context {
   }
 }
 
-pub(crate) struct ContextGuard(pub(crate) *mut c_void);
-
-impl Drop for ContextGuard {
+impl Drop for Context {
   fn drop(&mut self) {
-    if !self.0.is_null() {
-      // Convert back to Box and let it drop properly
-      unsafe {
-        let _context = Box::from_raw(self.0.cast::<Context>());
-        // Box destructor will clean up the Context
-      }
+    if !SapiGlobals::get().server_context.is_null() {
+      SapiGlobals::get_mut().server_context = std::ptr::null_mut();
     }
   }
 }

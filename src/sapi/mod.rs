@@ -47,7 +47,7 @@ use crate::sapi::util::handle_abort_connection;
 use crate::sapi::util::register_variable;
 use crate::sapi::variables::*;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Sapi(pub(crate) *mut SapiModule);
 
 unsafe impl Send for Sapi {}
@@ -77,7 +77,7 @@ impl Sapi {
     Self(sapi_module.into_raw())
   }
 
-  pub(crate) fn startup(self) -> Result<(), ()> {
+  pub(crate) fn startup(&self) -> Result<(), ()> {
     unsafe {
       let ini_entries = match (*self.0).ini_entries.is_null() {
         true => None,
@@ -97,13 +97,19 @@ impl Sapi {
     }
   }
 
-  pub(crate) fn shutdown(self) {
+  pub(crate) fn shutdown(&self) {
     unsafe {
       if let Some(shutdown) = (*self.0).shutdown {
         shutdown(self.0);
       }
       sapi_shutdown()
     }
+  }
+}
+
+impl Drop for Sapi {
+  fn drop(&mut self) {
+    unsafe { drop(Box::from_raw(self.0)) };
   }
 }
 
