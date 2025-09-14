@@ -3,10 +3,15 @@ mod ext;
 mod util;
 mod variables;
 
-use crate::sapi::context::Context;
-use crate::sapi::util::handle_abort_connection;
-use crate::sapi::util::register_variable;
-use crate::sapi::variables::*;
+use std::ffi::CStr;
+use std::ffi::CString;
+use std::ffi::c_char;
+use std::ffi::c_int;
+use std::ffi::c_void;
+use std::ops::Sub;
+use std::str::FromStr;
+use std::time::SystemTime;
+
 use bytes::Bytes;
 use bytes::BytesMut;
 use ext_php_rs::builders::ModuleBuilder;
@@ -29,20 +34,18 @@ use ext_php_rs::zend::SapiModule;
 use headers::HeaderMapExt;
 use headers::Host;
 use hyper::Uri;
-use hyper::header::{HeaderName, HeaderValue};
-use std::ffi::CStr;
-use std::ffi::CString;
-use std::ffi::c_char;
-use std::ffi::c_int;
-use std::ffi::c_void;
-use std::ops::Sub;
-use std::str::FromStr;
-use std::time::SystemTime;
+use hyper::header::HeaderName;
+use hyper::header::HeaderValue;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
 use tracing::instrument;
 use tracing::warn;
+
+use crate::sapi::context::Context;
+use crate::sapi::util::handle_abort_connection;
+use crate::sapi::util::register_variable;
+use crate::sapi::variables::*;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Sapi(pub(crate) *mut SapiModule);
@@ -334,9 +337,10 @@ pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
 
 #[cfg(test)]
 pub(crate) mod tests {
-  use super::*;
   use ext_php_rs::embed::ext_php_rs_sapi_shutdown;
   use ext_php_rs::embed::ext_php_rs_sapi_startup;
+
+  use super::*;
 
   pub(crate) struct TestSapi(*mut SapiModule);
 

@@ -1,11 +1,13 @@
-use crate::cli::Executable;
+use std::ffi::c_int;
+
 use ext_php_rs::ffi::PHP_INFO_ALL;
 use ext_php_rs::ffi::PHP_INFO_CREDITS;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::zend::ExecutorGlobals;
 use pasir::error::PhpError;
-use std::ffi::c_int;
+
+use crate::cli::Executable;
 
 pub struct Info {}
 

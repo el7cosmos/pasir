@@ -1,7 +1,10 @@
-use ext_php_rs::ffi::{php_handle_aborted_connection, php_register_variable};
+use std::ffi::CStr;
+use std::ffi::CString;
+
+use ext_php_rs::ffi::php_handle_aborted_connection;
+use ext_php_rs::ffi::php_register_variable;
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::ExecutorGlobals;
-use std::ffi::{CStr, CString};
 
 pub(crate) fn handle_abort_connection() {
   if !ExecutorGlobals::get().bailout.is_null() {

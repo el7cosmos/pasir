@@ -1,12 +1,16 @@
-use bytes::Buf;
-use futures_util::FutureExt;
-use hyper::body::{Body, Frame};
 use std::convert::Infallible;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::Context;
+use std::task::Poll;
+
+use bytes::Buf;
+use futures_util::FutureExt;
+use hyper::body::Body;
+use hyper::body::Frame;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
-use tokio::sync::{mpsc, oneshot};
 
 pub struct UnboundChannel<D> {
   rx_frame: mpsc::UnboundedReceiver<Frame<D>>,
@@ -65,10 +69,11 @@ impl<D> Sender<D> {
 
 #[cfg(test)]
 mod tests {
-  use crate::unbound_channel::UnboundChannel;
   use bytes::Bytes;
   use http_body_util::BodyExt;
   use hyper::body::Frame;
+
+  use crate::unbound_channel::UnboundChannel;
 
   #[tokio::test]
   async fn empty() {

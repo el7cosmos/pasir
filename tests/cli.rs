@@ -1,9 +1,10 @@
+use std::process::Command;
+
 use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::CargoError;
 use assert_cmd::cargo::CommandCargoExt;
 use predicates::str::contains;
 use predicates::str::starts_with;
-use std::process::Command;
 
 #[test]
 fn test_cli_info() -> Result<(), CargoError> {

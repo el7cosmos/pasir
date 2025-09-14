@@ -1,16 +1,21 @@
-use crate::config::route::{ApplyActions, RouteServe, Routes};
-use crate::service::ResponseBody;
-use crate::service::php::PhpService;
-use http_body_util::BodyExt;
-use hyper::body::Incoming;
-use hyper::{Request, Response};
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
+
+use http_body_util::BodyExt;
+use hyper::Request;
+use hyper::Response;
+use hyper::body::Incoming;
 use tower::Service;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;
+
+use crate::config::route::ApplyActions;
+use crate::config::route::RouteServe;
+use crate::config::route::Routes;
+use crate::service::ResponseBody;
+use crate::service::php::PhpService;
 
 #[derive(Clone)]
 pub(crate) struct RouterService {

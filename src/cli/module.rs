@@ -1,4 +1,7 @@
-use crate::cli::Executable;
+use std::borrow::Cow;
+use std::ffi::CStr;
+use std::io::Write;
+
 use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::ffi::module_registry;
@@ -8,9 +11,8 @@ use ext_php_rs::ffi::zend_module_entry;
 use ext_php_rs::zend::ExecutorGlobals;
 use nu_ansi_term::Color;
 use pasir::error::PhpError;
-use std::borrow::Cow;
-use std::ffi::CStr;
-use std::io::Write;
+
+use crate::cli::Executable;
 
 pub struct Module {}
 

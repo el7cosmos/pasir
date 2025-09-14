@@ -2,15 +2,17 @@ mod info;
 mod module;
 pub mod serve;
 
+use std::ffi::CStr;
+use std::path::PathBuf;
+
+use clap_verbosity_flag::InfoLevel;
+use clap_verbosity_flag::Verbosity;
+use ext_php_rs::ffi::PHP_VERSION;
+
 use crate::cli::info::Info;
 use crate::cli::module::Module;
 use crate::cli::serve::Serve;
 use crate::sapi::Sapi;
-use clap_verbosity_flag::InfoLevel;
-use clap_verbosity_flag::Verbosity;
-use ext_php_rs::ffi::PHP_VERSION;
-use std::ffi::CStr;
-use std::path::PathBuf;
 
 pub trait Executable {
   async fn execute(self) -> anyhow::Result<()>;
@@ -102,15 +104,17 @@ fn parse_define(arg: &str) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
+  use std::net::Ipv4Addr;
+  use std::path::PathBuf;
+
+  use clap_verbosity_flag::Verbosity;
+  use clap_verbosity_flag::VerbosityFilter;
+  use proptest::prelude::*;
+
   use crate::cli::Cli;
   use crate::cli::long_version;
   use crate::cli::parse_define;
   use crate::cli::parse_root;
-  use clap_verbosity_flag::Verbosity;
-  use clap_verbosity_flag::VerbosityFilter;
-  use proptest::prelude::*;
-  use std::net::Ipv4Addr;
-  use std::path::PathBuf;
 
   proptest! {
     #[test]
