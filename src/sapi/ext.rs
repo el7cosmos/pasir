@@ -27,12 +27,14 @@ impl FromSapiHeaders for StatusCode {
 
 #[cfg(test)]
 mod tests {
-  use crate::sapi::ext::FromSapiHeaders;
+  use std::os::raw::c_int;
+
   use ext_php_rs::ffi::_zend_llist;
   use ext_php_rs::zend::SapiHeaders;
   use hyper::StatusCode;
   use proptest::prelude::*;
-  use std::os::raw::c_int;
+
+  use crate::sapi::ext::FromSapiHeaders;
 
   trait SapiHeadersTestExt {
     fn new(rc: c_int) -> Self;

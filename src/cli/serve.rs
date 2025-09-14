@@ -1,7 +1,8 @@
-use crate::cli::Executable;
-use crate::config::route::Routes;
-use crate::service::PhpService;
-use crate::service::RouterService;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
 #[cfg(not(php_zend_max_execution_timers))]
 use ext_php_rs::zend::ExecutorGlobals;
 use hyper::header::SERVER;
@@ -11,10 +12,6 @@ use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder;
 use hyper_util::server::graceful::GracefulShutdown;
 use hyper_util::service::TowerToHyperService;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal::unix::SignalKind;
 use tower::ServiceBuilder;
@@ -27,6 +24,11 @@ use tower_http::trace::TraceLayer;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
+
+use crate::cli::Executable;
+use crate::config::route::Routes;
+use crate::service::PhpService;
+use crate::service::RouterService;
 
 #[derive(Debug)]
 pub struct Stream {

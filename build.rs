@@ -1,10 +1,13 @@
-use anyhow::{Context, bail};
 #[cfg(feature = "static")]
 use std::fs::File;
 #[cfg(feature = "static")]
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
+
+use anyhow::Context;
+use anyhow::bail;
 
 /// Output of `php -i`.
 pub struct PHPInfo(String);

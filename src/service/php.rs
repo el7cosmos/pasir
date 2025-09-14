@@ -1,9 +1,14 @@
-use crate::cli::serve::Stream;
-use crate::sapi::context::Context;
-use crate::sapi::context::ContextGuard;
-use crate::sapi::context::ContextSender;
-use crate::sapi::context::ResponseType;
-use crate::util::response_ext::ResponseExt;
+use std::convert::Infallible;
+use std::ffi::CString;
+use std::ffi::NulError;
+use std::ffi::c_void;
+use std::os::raw::c_int;
+use std::path::Path;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::Poll;
+
 use bytes::Bytes;
 use ext_php_rs::embed::Embed;
 use ext_php_rs::embed::ext_php_rs_sapi_per_thread_init;
@@ -27,20 +32,17 @@ use hyper::Version;
 use hyper::body::Incoming;
 use hyper::http::request::Parts;
 use pasir::error::PhpError;
-use std::convert::Infallible;
-use std::ffi::CString;
-use std::ffi::NulError;
-use std::ffi::c_void;
-use std::os::raw::c_int;
-use std::path::Path;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::Poll;
 use tower::Service;
 use tracing::error;
 use tracing::instrument;
 use tracing::trace;
+
+use crate::cli::serve::Stream;
+use crate::sapi::context::Context;
+use crate::sapi::context::ContextGuard;
+use crate::sapi::context::ContextSender;
+use crate::sapi::context::ResponseType;
+use crate::util::response_ext::ResponseExt;
 
 #[derive(Clone, Default)]
 pub(crate) struct PhpService {}
@@ -289,11 +291,15 @@ pub fn resolve_php_index(document_root: &Path, request_uri: &str) -> PhpRoute {
 
 #[cfg(test)]
 mod tests {
+  use std::fs;
+
+  use hyper::Method;
+  use hyper::Uri;
+  use hyper::header::CONTENT_LENGTH;
+  use hyper::header::CONTENT_TYPE;
+
   use super::*;
   use crate::sapi::tests::TestSapi;
-  use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
-  use hyper::{Method, Uri};
-  use std::fs;
 
   #[test]
   fn test_init_sapi_globals() {

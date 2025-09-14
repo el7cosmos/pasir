@@ -1,16 +1,20 @@
-#[cfg(not(php_zend_max_execution_timers))]
-use crate::util::response_ext::ResponseExt;
+use std::convert::Infallible;
+
 use bytes::Bytes;
+#[cfg(not(php_zend_max_execution_timers))]
+use http_body_util::BodyExt;
+#[cfg(not(php_zend_max_execution_timers))]
+use http_body_util::Empty;
 use http_body_util::combinators::UnsyncBoxBody;
 #[cfg(not(php_zend_max_execution_timers))]
-use http_body_util::{BodyExt, Empty};
-#[cfg(not(php_zend_max_execution_timers))]
 use hyper::Response;
-use std::convert::Infallible;
 #[cfg(not(php_zend_max_execution_timers))]
 use tower::BoxError;
 #[cfg(not(php_zend_max_execution_timers))]
 use tower::timeout::error::Elapsed;
+
+#[cfg(not(php_zend_max_execution_timers))]
+use crate::util::response_ext::ResponseExt;
 
 pub(crate) mod php;
 mod router;

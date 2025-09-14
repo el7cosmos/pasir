@@ -4,10 +4,11 @@ mod sapi;
 mod service;
 mod util;
 
-use crate::cli::Cli;
-use crate::cli::Executable;
 use clap::Parser;
 use tracing::error;
+
+use crate::cli::Cli;
+use crate::cli::Executable;
 
 #[tokio::main]
 async fn main() {

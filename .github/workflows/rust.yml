@@ -19,7 +19,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - run: cargo verify-project
+      - run: rustup component add --toolchain nightly rustfmt
+      - run: cargo +nightly fmt --check --all --message-format short
+
   build:
+    needs:
+      - check
+
     strategy:
       fail-fast: false
       matrix:
@@ -48,8 +65,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - run: cargo verify-project
-      - run: cargo fmt --check
       - run: cargo clippy
       - run: cargo build
       - run: cargo nextest run

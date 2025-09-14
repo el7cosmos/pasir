@@ -1,12 +1,19 @@
-use anyhow::Context;
-use hyper::body::Incoming;
-use hyper::http::{HeaderName, HeaderValue};
-use hyper::{Request, Response, StatusCode};
-use regex::{Regex, RegexBuilder};
-use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{info, warn};
+
+use anyhow::Context;
+use hyper::Request;
+use hyper::Response;
+use hyper::StatusCode;
+use hyper::body::Incoming;
+use hyper::http::HeaderName;
+use hyper::http::HeaderValue;
+use regex::Regex;
+use regex::RegexBuilder;
+use serde::Deserialize;
+use serde::Deserializer;
+use tracing::info;
+use tracing::warn;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub(crate) struct Routes {
@@ -229,14 +236,22 @@ pub(crate) trait ApplyActions {
 
 #[cfg(test)]
 mod tests {
-  use crate::config::route::{MatchesRequest, MatchesResponse, Route, RouteMatch, Routes};
-  use hyper::http::{HeaderName, HeaderValue};
-  use hyper::{Request, Response};
-  use regex::RegexBuilder;
-  use rstest::rstest;
   use std::collections::HashMap;
   use std::path::PathBuf;
   use std::str::FromStr;
+
+  use hyper::Request;
+  use hyper::Response;
+  use hyper::http::HeaderName;
+  use hyper::http::HeaderValue;
+  use regex::RegexBuilder;
+  use rstest::rstest;
+
+  use crate::config::route::MatchesRequest;
+  use crate::config::route::MatchesResponse;
+  use crate::config::route::Route;
+  use crate::config::route::RouteMatch;
+  use crate::config::route::Routes;
 
   #[test]
   fn test_default_routes() {

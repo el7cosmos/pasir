@@ -1,5 +1,7 @@
-use hyper::{Response, StatusCode};
 use std::convert::Infallible;
+
+use hyper::Response;
+use hyper::StatusCode;
 
 pub(crate) trait ResponseExt<T> {
   fn bad_request(body: T) -> Result<Response<T>, Infallible>;
@@ -36,10 +38,13 @@ fn make_response<T>(status: StatusCode, body: T) -> Response<T> {
 
 #[cfg(test)]
 mod tests {
-  use crate::util::response_ext::ResponseExt;
-  use hyper::{Response, StatusCode};
-  use rstest::rstest;
   use std::convert::Infallible;
+
+  use hyper::Response;
+  use hyper::StatusCode;
+  use rstest::rstest;
+
+  use crate::util::response_ext::ResponseExt;
 
   #[rstest]
   #[case::bad_request(Response::bad_request, StatusCode::BAD_REQUEST)]
