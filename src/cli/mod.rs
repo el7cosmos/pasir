@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use clap_verbosity_flag::InfoLevel;
 use clap_verbosity_flag::Verbosity;
 use ext_php_rs::ffi::PHP_VERSION;
+use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
+use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
+use ext_php_rs::zend::ExecutorGlobals;
+use pasir::error::PhpError;
 
 use crate::cli::info::Info;
 use crate::cli::module::Module;
@@ -16,6 +20,20 @@ use crate::sapi::Sapi;
 
 pub trait Executable {
   async fn execute(self) -> anyhow::Result<()>;
+
+  fn request_startup() -> anyhow::Result<()> {
+    if unsafe { ext_php_rs::ffi::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
+      return Err(anyhow::anyhow!(PhpError::RequestStartupFailed));
+    }
+
+    Ok(())
+  }
+
+  fn request_shutdown() {
+    ExecutorGlobals::get_mut().exit_status = ZEND_RESULT_CODE_SUCCESS;
+    unsafe { ext_php_rs::ffi::php_output_end_all() };
+    unsafe { ext_php_rs::ffi::php_request_shutdown(std::ptr::null_mut()) };
+  }
 }
 
 #[derive(Clone, Debug, clap::Parser)]

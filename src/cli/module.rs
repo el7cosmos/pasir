@@ -2,15 +2,11 @@ use std::borrow::Cow;
 use std::ffi::CStr;
 use std::io::Write;
 
-use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
-use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::ffi::module_registry;
 use ext_php_rs::ffi::zend_extension;
 use ext_php_rs::ffi::zend_extensions;
 use ext_php_rs::ffi::zend_module_entry;
-use ext_php_rs::zend::ExecutorGlobals;
 use nu_ansi_term::Color;
-use pasir::error::PhpError;
 
 use crate::cli::Executable;
 
@@ -18,9 +14,7 @@ pub struct Module {}
 
 impl Module {
   unsafe fn print_modules() -> anyhow::Result<()> {
-    if unsafe { ext_php_rs::ffi::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
-      return Err(anyhow::anyhow!(PhpError::RequestStartupFailed));
-    }
+    Self::request_startup()?;
 
     let stdout = std::io::stdout();
     let mut handle = std::io::BufWriter::new(stdout);
@@ -54,8 +48,7 @@ impl Module {
       writeln!(handle, "{}", extension)?;
     }
 
-    ExecutorGlobals::get_mut().exit_status = ZEND_RESULT_CODE_SUCCESS;
-    unsafe { ext_php_rs::ffi::php_output_end_all() }
+    Self::request_shutdown();
 
     Ok(())
   }
