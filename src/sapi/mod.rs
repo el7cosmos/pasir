@@ -14,7 +14,6 @@ use std::time::SystemTime;
 
 use bytes::Bytes;
 use bytes::BytesMut;
-use ext_php_rs::builders::ModuleBuilder;
 use ext_php_rs::builders::SapiBuilder;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
@@ -24,10 +23,9 @@ use ext_php_rs::ffi::php_register_variable;
 use ext_php_rs::ffi::sapi_shutdown;
 use ext_php_rs::ffi::sapi_startup;
 use ext_php_rs::ffi::zend_error;
-use ext_php_rs::php_function;
-use ext_php_rs::php_module;
+use ext_php_rs::prelude::*;
 use ext_php_rs::types::Zval;
-use ext_php_rs::wrap_function;
+use ext_php_rs::zend::FunctionEntry;
 use ext_php_rs::zend::SapiGlobals;
 use ext_php_rs::zend::SapiHeader;
 use ext_php_rs::zend::SapiModule;
@@ -71,9 +69,19 @@ impl Sapi {
       builder = builder.ini_entries(entries);
     }
 
+    let function_entry =
+      wrap_function!(pasir_finish_request).build().expect("Failed to build functions");
+    let mut function_alias = function_entry;
+    function_alias.fname =
+      CString::new("fastcgi_finish_request").expect("String contain nul byte").into_raw();
+
+    let functions = vec![function_entry, function_alias, FunctionEntry::end()];
+    let functions = Box::into_raw(functions.into_boxed_slice());
+
     let mut sapi_module = builder.build().unwrap();
-    sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.sapi_error = Some(zend_error);
+    sapi_module.phpinfo_as_text = php_info_as_text as c_int;
+    sapi_module.additional_functions = functions.cast();
     Self(sapi_module.into_raw())
   }
 
@@ -109,12 +117,31 @@ impl Sapi {
 
 impl Drop for Sapi {
   fn drop(&mut self) {
-    unsafe { drop(Box::from_raw(self.0)) };
+    unsafe {
+      let sapi_module = Box::from_raw(self.0);
+
+      drop(Box::from_raw(sapi_module.name));
+      drop(Box::from_raw(sapi_module.pretty_name));
+      if !sapi_module.ini_entries.is_null() {
+        #[cfg(not(php83))]
+        drop(Box::from_raw(sapi_module.ini_entries));
+        #[cfg(php83)]
+        drop(Box::from_raw(sapi_module.ini_entries.cast_mut()));
+      }
+
+      let additional_functions = std::slice::from_raw_parts(sapi_module.additional_functions, 3);
+      drop(Box::from_raw(additional_functions[0].fname.cast_mut()));
+      drop(Box::from_raw(additional_functions[0].arg_info.cast_mut()));
+      drop(Box::from_raw(additional_functions[1].fname.cast_mut()));
+      drop(Box::from_raw(sapi_module.additional_functions.cast_mut()));
+
+      drop(sapi_module)
+    };
   }
 }
 
 extern "C" fn startup(sapi: *mut SapiModule) -> c_int {
-  unsafe { php_module_startup(sapi, get_module()) }
+  unsafe { php_module_startup(sapi, std::ptr::null_mut()) }
 }
 
 extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
@@ -309,13 +336,8 @@ extern "C" fn get_request_time(time: *mut f64) -> c_int {
 }
 
 #[php_function]
-fn fastcgi_finish_request() -> bool {
+fn pasir_finish_request() -> bool {
   Context::from_server_context(SapiGlobals::get().server_context).finish_request()
-}
-
-#[php_module]
-pub fn get_module(module: ModuleBuilder) -> ModuleBuilder {
-  module.function(wrap_function!(fastcgi_finish_request))
 }
 
 #[cfg(test)]
