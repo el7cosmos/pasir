@@ -1,3 +1,8 @@
+// Portions of this code are derived from ext-php-rs
+// Copyright (c) 2021 David Cole <david.cole1340@gmail.com> and all contributors
+// Original source: https://github.com/davidcole1340/ext-php-rs
+// Licensed under MIT License (see THIRD_PARTY_LICENSES file)
+
 use std::cmp::PartialEq;
 use std::cmp::PartialOrd;
 
