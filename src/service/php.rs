@@ -16,6 +16,7 @@ use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::php_handle_auth_data;
 use ext_php_rs::ffi::php_request_shutdown;
 use ext_php_rs::ffi::php_request_startup;
+use ext_php_rs::ffi::zend_shutdown_strtod;
 use ext_php_rs::zend::SapiGlobals;
 use ext_php_rs::zend::try_catch_first;
 use headers::ContentLength;
@@ -204,7 +205,8 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
 }
 
 fn request_shutdown() {
-  unsafe { php_request_shutdown(std::ptr::null_mut()) }
+  unsafe { zend_shutdown_strtod() };
+  unsafe { php_request_shutdown(std::ptr::null_mut()) };
 
   let mut request_info = SapiGlobals::get().request_info;
 
