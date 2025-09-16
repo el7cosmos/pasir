@@ -8,7 +8,7 @@ build = "build.rs"
 anyhow = "1.0.98"
 bytes = "1.10.1"
 clap = { version = "4.5.47", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
-clap-verbosity-flag = { version = "3.0.3", default-features = false, features = ["tracing"] }
+clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
 ext-php-rs = { version = "0.14.2", default-features = false, features = ["embed"] }
 futures-util = { version = "0.3.31", default-features = false }
 headers = "0.4.1"
