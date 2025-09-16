@@ -123,6 +123,9 @@ impl Drop for Sapi {
       drop(Box::from_raw(sapi_module.name));
       drop(Box::from_raw(sapi_module.pretty_name));
       if !sapi_module.ini_entries.is_null() {
+        #[cfg(not(php83))]
+        drop(Box::from_raw(sapi_module.ini_entries));
+        #[cfg(php83)]
         drop(Box::from_raw(sapi_module.ini_entries.cast_mut()));
       }
 
