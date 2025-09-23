@@ -86,32 +86,31 @@ impl Sapi {
   }
 
   pub(crate) fn startup(&self) -> Result<(), ()> {
-    unsafe {
-      let ini_entries = match (*self.0).ini_entries.is_null() {
-        true => None,
-        false => Some((*self.0).ini_entries),
-      };
-      sapi_startup(self.0);
-      if let Some(entries) = ini_entries {
-        (*self.0).ini_entries = entries
-      }
+    let sapi_module_ptr = self.0;
+    let sapi_module = unsafe { *sapi_module_ptr };
 
-      let startup = (*self.0).startup.expect("startup function is null");
-      match startup(self.0) {
-        ZEND_RESULT_CODE_SUCCESS => Ok(()),
-        ZEND_RESULT_CODE_FAILURE => Err(()),
-        _ => Err(()),
-      }
+    let ini_entries = match sapi_module.ini_entries.is_null() {
+      true => None,
+      false => Some(sapi_module.ini_entries),
+    };
+    unsafe { sapi_startup(sapi_module_ptr) };
+    if let Some(entries) = ini_entries {
+      unsafe { (*sapi_module_ptr).ini_entries = entries }
+    }
+
+    let startup = sapi_module.startup.expect("startup function is null");
+    match unsafe { startup(sapi_module_ptr) } {
+      ZEND_RESULT_CODE_SUCCESS => Ok(()),
+      ZEND_RESULT_CODE_FAILURE => Err(()),
+      _ => Err(()),
     }
   }
 
   pub(crate) fn shutdown(&self) {
-    unsafe {
-      if let Some(shutdown) = (*self.0).shutdown {
-        shutdown(self.0);
-      }
-      sapi_shutdown()
+    if let Some(shutdown) = unsafe { *self.0 }.shutdown {
+      unsafe { shutdown(self.0) };
     }
+    unsafe { sapi_shutdown() }
   }
 }
 
@@ -192,21 +191,22 @@ extern "C" fn flush(server_context: *mut c_void) {
 }
 
 extern "C" fn send_header(header: *mut SapiHeader, server_context: *mut c_void) {
-  if header.is_null() || server_context.is_null() {
+  if server_context.is_null() {
     return;
   }
 
-  let sapi_header = unsafe { *header };
-  if sapi_header.header.is_null() {
-    return;
-  }
+  if let Some(sapi_header) = unsafe { header.as_ref() } {
+    if sapi_header.header.is_null() {
+      return;
+    }
 
-  let context = Context::from_server_context(server_context);
-  if let Some(value) = sapi_header.value() {
-    context.append_response_header(
-      HeaderName::from_str(sapi_header.name()).unwrap(),
-      HeaderValue::from_str(value).unwrap(),
-    );
+    let context = Context::from_server_context(server_context);
+    if let Some(value) = sapi_header.value() {
+      context.append_response_header(
+        HeaderName::from_str(sapi_header.name()).unwrap(),
+        HeaderValue::from_str(value).unwrap(),
+      );
+    }
   }
 }
 
