@@ -12,6 +12,8 @@ use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::zend::ExecutorGlobals;
 use pasir::error::PhpError;
+#[cfg(php83)]
+use tokio::runtime::Handle;
 
 use crate::cli::info::Info;
 use crate::cli::module::Module;
@@ -71,7 +73,17 @@ impl Cli {
 
 impl Executable for Cli {
   async fn execute(self) -> anyhow::Result<()> {
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
+    #[cfg(not(php83))]
+    unsafe {
+      ext_php_rs::embed::ext_php_rs_sapi_startup()
+    };
+    #[cfg(php83)]
+    {
+      let expected_threads = Handle::current().metrics().num_workers().cast_signed();
+      if !unsafe { ext_php_rs::ffi::php_tsrm_startup_ex(expected_threads.try_into()?) } {
+        anyhow::bail!("Failed to start PHP TSRM");
+      }
+    }
 
     let ini_entries = match self.define.is_empty() {
       true => None,
