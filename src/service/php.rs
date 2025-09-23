@@ -17,6 +17,7 @@ use ext_php_rs::ffi::php_handle_auth_data;
 use ext_php_rs::ffi::php_request_shutdown;
 use ext_php_rs::ffi::php_request_startup;
 use ext_php_rs::ffi::zend_shutdown_strtod;
+use ext_php_rs::ffi::zend_update_current_locale;
 use ext_php_rs::zend::SapiGlobals;
 use ext_php_rs::zend::try_catch_first;
 use headers::ContentLength;
@@ -70,6 +71,7 @@ impl Service<Request<Incoming>> for PhpService {
       };
 
       unsafe { ext_php_rs_sapi_per_thread_init() }
+      unsafe { zend_update_current_locale() }
       let path_translated = format!("{}{}", root.to_str().unwrap(), route.script_name());
       if init_sapi_globals(&head, path_translated.as_str()).is_err() {
         return Response::bad_request(error_body);
