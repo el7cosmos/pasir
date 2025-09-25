@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use ext_php_rs::ffi::php_output_end_all;
 use ext_php_rs::zend::SapiGlobals;
 use hyper::HeaderMap;
 use hyper::Request;
@@ -145,7 +144,7 @@ impl Context {
       return false;
     }
 
-    unsafe { php_output_end_all() }
+    unsafe { ext_php_rs::ffi::php_output_end_all() }
 
     if let Some(body_tx) = self.sender.body.take() {
       body_tx.abort();
@@ -190,5 +189,49 @@ impl ContextSender {
         handle_abort_connection();
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::net::IpAddr;
+  use std::net::Ipv4Addr;
+  use std::net::SocketAddr;
+  use std::path::PathBuf;
+  use std::sync::Arc;
+
+  use bytes::Bytes;
+  use ext_php_rs::zend::SapiGlobals;
+  use hyper::Request;
+
+  use crate::cli::serve::Stream;
+  use crate::sapi::context::Context;
+  use crate::sapi::context::ContextSender;
+  use crate::sapi::tests::TestSapi;
+  use crate::service::php::PhpRoute;
+
+  #[test]
+  fn test_context_flush() {
+    let _sapi = TestSapi::new();
+
+    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
+    let root = Arc::new(PathBuf::default());
+    let route = PhpRoute::default();
+    let stream = Arc::new(Stream::new(socket, socket));
+    let request = Request::new(Bytes::default());
+
+    let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
+
+    let context = Context::new(root.clone(), route, stream, request, context_sender);
+    SapiGlobals::get_mut().server_context = context.into_raw().cast();
+
+    let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+
+    // assert that `flush` is true if the request not finished yet.
+    assert!(context.flush());
+    // assert that `finish_request` is true if the request not finished yet.
+    assert!(context.finish_request());
+    // assert that `flush` is false if the request finished already.
+    assert!(!context.flush());
   }
 }

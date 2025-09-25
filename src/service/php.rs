@@ -106,7 +106,7 @@ impl Service<Request<Incoming>> for PhpService {
 }
 
 /// Represents a resolved PHP route
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct PhpRoute {
   script_name: String,
   path_info: Option<String>,
