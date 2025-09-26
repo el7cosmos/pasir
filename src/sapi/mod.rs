@@ -17,12 +17,6 @@ use bytes::BytesMut;
 use ext_php_rs::builders::SapiBuilder;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
-use ext_php_rs::ffi::php_module_shutdown;
-use ext_php_rs::ffi::php_module_startup;
-use ext_php_rs::ffi::php_register_variable;
-use ext_php_rs::ffi::sapi_shutdown;
-use ext_php_rs::ffi::sapi_startup;
-use ext_php_rs::ffi::zend_error;
 use ext_php_rs::prelude::*;
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::FunctionEntry;
@@ -78,7 +72,7 @@ impl Sapi {
     let functions = Box::into_raw(functions.into_boxed_slice());
 
     let mut sapi_module = builder.build().unwrap();
-    sapi_module.sapi_error = Some(zend_error);
+    sapi_module.sapi_error = Some(ext_php_rs::ffi::zend_error);
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.additional_functions = functions.cast();
     Self(sapi_module.into_raw())
@@ -92,7 +86,7 @@ impl Sapi {
       true => None,
       false => Some(sapi_module.ini_entries),
     };
-    unsafe { sapi_startup(sapi_module_ptr) };
+    unsafe { ext_php_rs::ffi::sapi_startup(sapi_module_ptr) };
     if let Some(entries) = ini_entries {
       unsafe { (*sapi_module_ptr).ini_entries = entries }
     }
@@ -109,7 +103,7 @@ impl Sapi {
     if let Some(shutdown) = unsafe { *self.0 }.shutdown {
       unsafe { shutdown(self.0) };
     }
-    unsafe { sapi_shutdown() }
+    unsafe { ext_php_rs::ffi::sapi_shutdown() }
   }
 }
 
@@ -139,11 +133,11 @@ impl Drop for Sapi {
 }
 
 extern "C" fn startup(sapi: *mut SapiModule) -> c_int {
-  unsafe { php_module_startup(sapi, std::ptr::null_mut()) }
+  unsafe { ext_php_rs::ffi::php_module_startup(sapi, std::ptr::null_mut()) }
 }
 
 extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
-  unsafe { php_module_shutdown() };
+  unsafe { ext_php_rs::ffi::php_module_shutdown() };
   ZEND_RESULT_CODE_SUCCESS as c_int
 }
 
@@ -255,17 +249,29 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   let request_info = sapi_globals.request_info();
   if !request_info.request_uri.is_null() {
     unsafe {
-      php_register_variable(REQUEST_URI.as_ptr(), request_info.request_uri.cast_const(), vars);
+      ext_php_rs::ffi::php_register_variable(
+        REQUEST_URI.as_ptr(),
+        request_info.request_uri.cast_const(),
+        vars,
+      );
     }
   }
   if !request_info.request_method.is_null() {
     unsafe {
-      php_register_variable(REQUEST_METHOD.as_ptr(), request_info.request_method, vars);
+      ext_php_rs::ffi::php_register_variable(
+        REQUEST_METHOD.as_ptr(),
+        request_info.request_method,
+        vars,
+      );
     }
   }
   if !request_info.query_string.is_null() {
     unsafe {
-      php_register_variable(QUERY_STRING.as_ptr(), request_info.query_string.cast_const(), vars);
+      ext_php_rs::ffi::php_register_variable(
+        QUERY_STRING.as_ptr(),
+        request_info.query_string.cast_const(),
+        vars,
+      );
     }
   }
 
@@ -357,27 +363,31 @@ pub(crate) mod tests {
   impl TestSapi {
     pub(crate) fn new() -> Self {
       let sapi = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
-        .read_cookies_function(read_cookies)
+        .read_cookies_function(read_cookies_test)
         .build()
         .unwrap()
         .into_raw();
       unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
-      unsafe { sapi_startup(sapi) };
+      unsafe { ext_php_rs::ffi::sapi_startup(sapi) };
       Self(sapi)
     }
 
     pub(crate) fn module_startup(self) -> Self {
-      unsafe { php_module_startup(self.0, std::ptr::null_mut()) };
+      unsafe { ext_php_rs::ffi::php_module_startup(self.0, std::ptr::null_mut()) };
       self
     }
   }
 
   impl Drop for TestSapi {
     fn drop(&mut self) {
-      unsafe { php_module_shutdown() };
-      unsafe { sapi_shutdown() };
+      unsafe { ext_php_rs::ffi::php_module_shutdown() };
+      unsafe { ext_php_rs::ffi::sapi_shutdown() };
       unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
     }
+  }
+
+  extern "C" fn read_cookies_test() -> *mut c_char {
+    std::ptr::null_mut()
   }
 
   /// Macro to assert server variable values
