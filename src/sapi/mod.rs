@@ -366,8 +366,12 @@ pub(crate) mod tests {
         .into_raw();
       unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
       unsafe { sapi_startup(sapi) };
-      unsafe { php_module_startup(sapi, std::ptr::null_mut()) };
       Self(sapi)
+    }
+
+    pub(crate) fn module_startup(self) -> Self {
+      unsafe { php_module_startup(self.0, std::ptr::null_mut()) };
+      self
     }
   }
 
@@ -478,6 +482,7 @@ pub(crate) mod tests {
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
 
+    unsafe { ext_php_rs::ffi::php_output_startup() };
     let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
     assert!(context.finish_request());
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 0);
@@ -502,6 +507,7 @@ pub(crate) mod tests {
     let header_raw = Box::into_raw(Box::new(header));
     send_header(header_raw, context_raw.cast());
 
+    unsafe { ext_php_rs::ffi::php_output_startup() };
     let mut context = unsafe { Context::from_raw(context_raw.cast()) };
     context.finish_request();
 
@@ -568,7 +574,7 @@ pub(crate) mod tests {
 
   #[test]
   fn test_register_server_variables() -> anyhow::Result<()> {
-    let _sapi = TestSapi::new();
+    let _sapi = TestSapi::new().module_startup();
 
     let localhost = Ipv4Addr::LOCALHOST;
     let socket = SocketAddr::new(IpAddr::from(localhost), Default::default());

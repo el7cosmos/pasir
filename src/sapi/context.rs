@@ -225,6 +225,7 @@ mod tests {
     let context = Context::new(root.clone(), route, stream, request, context_sender);
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
+    unsafe { ext_php_rs::ffi::php_output_startup() };
     let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
 
     // assert that `flush` is true if the request not finished yet.
