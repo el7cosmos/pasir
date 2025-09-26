@@ -156,11 +156,60 @@ impl Context {
   }
 }
 
+impl Default for Context {
+  fn default() -> Self {
+    let (head, _) = Response::<Bytes>::default().into_parts();
+    Self {
+      root: Arc::new(Default::default()),
+      route: Default::default(),
+      stream: Arc::new(Default::default()),
+      request: Default::default(),
+      response_head: head,
+      sender: Default::default(),
+      request_finished: false,
+    }
+  }
+}
+
 impl Drop for Context {
   fn drop(&mut self) {
     if !SapiGlobals::get().server_context.is_null() {
       SapiGlobals::get_mut().server_context = std::ptr::null_mut();
     }
+  }
+}
+
+#[cfg(test)]
+pub struct ContextBuilder(Context);
+
+#[cfg(test)]
+impl ContextBuilder {
+  pub fn new() -> Self {
+    Self(Context::default())
+  }
+
+  pub fn root(mut self, root: impl Into<PathBuf>) -> Self {
+    self.0.root = Arc::new(root.into());
+    self
+  }
+
+  pub fn route(mut self, route: PhpRoute) -> Self {
+    self.0.route = route;
+    self
+  }
+
+  pub fn request(mut self, request: Request<Bytes>) -> Self {
+    self.0.request = request;
+    self
+  }
+
+  pub fn sender(mut self, sender: ContextSender) -> Self {
+    self.0.sender = sender;
+    self
+  }
+
+  pub fn build(self) -> Context {
+    self.0
   }
 }
 

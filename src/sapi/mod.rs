@@ -342,16 +342,13 @@ fn pasir_finish_request() -> bool {
 #[cfg(test)]
 pub(crate) mod tests {
   use std::collections::HashMap;
-  use std::net::IpAddr;
   use std::net::Ipv4Addr;
-  use std::net::SocketAddr;
   use std::path::PathBuf;
-  use std::sync::Arc;
 
   use hyper::Request;
 
   use super::*;
-  use crate::cli::serve::Stream;
+  use crate::sapi::context::ContextBuilder;
   use crate::sapi::context::ContextSender;
   use crate::service::php::PhpRoute;
 
@@ -471,14 +468,9 @@ pub(crate) mod tests {
     // assert `ub_write` without server context.
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
 
-    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
-    let root = Arc::new(PathBuf::default());
-    let route = PhpRoute::default();
-    let stream = Arc::new(Stream::new(socket, socket));
-    let request = Request::new(Bytes::default());
     let (_, _body_rx, context_sender) = ContextSender::receiver();
+    let context = ContextBuilder::new().sender(context_sender).build();
 
-    let context = Context::new(root.clone(), route, stream, request, context_sender);
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
 
@@ -494,14 +486,8 @@ pub(crate) mod tests {
 
     let _sapi = TestSapi::new();
 
-    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
-    let root = Arc::new(PathBuf::default());
-    let route = PhpRoute::default();
-    let stream = Arc::new(Stream::new(socket, socket));
-    let request = Request::new(Bytes::default());
     let (head_rx, _, context_sender) = ContextSender::receiver();
-
-    let context = Context::new(root.clone(), route, stream, request, context_sender);
+    let context = ContextBuilder::new().sender(context_sender).build();
     let context_raw = context.into_raw();
     let header = SapiHeader { header: c"Foo: Bar".as_ptr().cast_mut(), header_len: 8 };
     let header_raw = Box::into_raw(Box::new(header));
@@ -523,13 +509,8 @@ pub(crate) mod tests {
     let buffer_raw = buffer.into_raw();
     assert_eq!(read_post(buffer_raw, 0), 0);
 
-    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
-    let root = Arc::new(PathBuf::default());
-    let route = PhpRoute::default();
-    let stream = Arc::new(Stream::new(socket, socket));
     let request = Request::new(Bytes::from("Foo"));
-
-    let context = Context::new(root, route, stream, request, ContextSender::default());
+    let context = ContextBuilder::new().request(request).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     SapiGlobals::get_mut().request_info.content_length = 3;
 
@@ -559,13 +540,8 @@ pub(crate) mod tests {
   fn test_read_cookies() {
     let _sapi = TestSapi::new();
 
-    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
-    let root = Arc::new(PathBuf::default());
-    let route = PhpRoute::default();
-    let stream = Arc::new(Stream::new(socket, socket));
     let request = Request::builder().header("Cookie", "foo=bar").body(Bytes::default()).unwrap();
-
-    let context = Context::new(root, route, stream, request, ContextSender::default());
+    let context = ContextBuilder::new().request(request).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     assert_eq!(unsafe { CString::from_raw(read_cookies()) }, CString::new("foo=bar").unwrap());
 
@@ -577,15 +553,13 @@ pub(crate) mod tests {
     let _sapi = TestSapi::new().module_startup();
 
     let localhost = Ipv4Addr::LOCALHOST;
-    let socket = SocketAddr::new(IpAddr::from(localhost), Default::default());
-    let root = Arc::new(PathBuf::from("/foo"));
+    let root = PathBuf::from("/foo");
     let route = PhpRoute::new("/index.php".to_string(), Some("/foo/bar".to_string()));
-    let stream = Arc::new(Stream::new(socket, socket));
     let request = Request::builder()
       .header("Cookie", "foo=bar")
       .header("Host", localhost.to_string())
       .body(Bytes::default())?;
-    let context = Context::new(root, route, stream, request, ContextSender::default());
+    let context = ContextBuilder::new().root(root).route(route).request(request).build();
 
     let mut sapi_globals = SapiGlobals::get_mut();
     sapi_globals.request_info.request_uri = c"/foo/bar".as_ptr().cast_mut();

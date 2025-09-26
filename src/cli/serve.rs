@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +49,13 @@ impl Stream {
 
   pub fn peer_addr(&self) -> SocketAddr {
     self.peer_addr
+  }
+}
+
+impl Default for Stream {
+  fn default() -> Self {
+    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
+    Self { local_addr: socket, peer_addr: socket }
   }
 }
 
