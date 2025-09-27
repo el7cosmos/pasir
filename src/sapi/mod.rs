@@ -17,12 +17,6 @@ use bytes::BytesMut;
 use ext_php_rs::builders::SapiBuilder;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
 use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
-use ext_php_rs::ffi::php_module_shutdown;
-use ext_php_rs::ffi::php_module_startup;
-use ext_php_rs::ffi::php_register_variable;
-use ext_php_rs::ffi::sapi_shutdown;
-use ext_php_rs::ffi::sapi_startup;
-use ext_php_rs::ffi::zend_error;
 use ext_php_rs::prelude::*;
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::FunctionEntry;
@@ -41,8 +35,7 @@ use tracing::instrument;
 use tracing::warn;
 
 use crate::sapi::context::Context;
-use crate::sapi::util::handle_abort_connection;
-use crate::sapi::util::register_variable;
+use crate::sapi::util::*;
 use crate::sapi::variables::*;
 
 #[derive(Clone, Debug)]
@@ -79,7 +72,7 @@ impl Sapi {
     let functions = Box::into_raw(functions.into_boxed_slice());
 
     let mut sapi_module = builder.build().unwrap();
-    sapi_module.sapi_error = Some(zend_error);
+    sapi_module.sapi_error = Some(ext_php_rs::ffi::zend_error);
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.additional_functions = functions.cast();
     Self(sapi_module.into_raw())
@@ -93,7 +86,7 @@ impl Sapi {
       true => None,
       false => Some(sapi_module.ini_entries),
     };
-    unsafe { sapi_startup(sapi_module_ptr) };
+    unsafe { ext_php_rs::ffi::sapi_startup(sapi_module_ptr) };
     if let Some(entries) = ini_entries {
       unsafe { (*sapi_module_ptr).ini_entries = entries }
     }
@@ -110,7 +103,7 @@ impl Sapi {
     if let Some(shutdown) = unsafe { *self.0 }.shutdown {
       unsafe { shutdown(self.0) };
     }
-    unsafe { sapi_shutdown() }
+    unsafe { ext_php_rs::ffi::sapi_shutdown() }
   }
 }
 
@@ -140,11 +133,11 @@ impl Drop for Sapi {
 }
 
 extern "C" fn startup(sapi: *mut SapiModule) -> c_int {
-  unsafe { php_module_startup(sapi, std::ptr::null_mut()) }
+  unsafe { ext_php_rs::ffi::php_module_startup(sapi, std::ptr::null_mut()) }
 }
 
 extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
-  unsafe { php_module_shutdown() };
+  unsafe { ext_php_rs::ffi::php_module_shutdown() };
   ZEND_RESULT_CODE_SUCCESS as c_int
 }
 
@@ -228,7 +221,7 @@ extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
 
   let context = Context::from_server_context(sapi_globals.server_context);
   let bytes = context.body_mut().split_to(to_read);
-  unsafe { buffer.copy_from(bytes.as_ptr().cast::<c_char>(), bytes.len()) }
+  unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, bytes.len()) };
   bytes.len()
 }
 
@@ -256,17 +249,29 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   let request_info = sapi_globals.request_info();
   if !request_info.request_uri.is_null() {
     unsafe {
-      php_register_variable(REQUEST_URI.as_ptr(), request_info.request_uri.cast_const(), vars);
+      ext_php_rs::ffi::php_register_variable(
+        REQUEST_URI.as_ptr(),
+        request_info.request_uri.cast_const(),
+        vars,
+      );
     }
   }
   if !request_info.request_method.is_null() {
     unsafe {
-      php_register_variable(REQUEST_METHOD.as_ptr(), request_info.request_method, vars);
+      ext_php_rs::ffi::php_register_variable(
+        REQUEST_METHOD.as_ptr(),
+        request_info.request_method,
+        vars,
+      );
     }
   }
   if !request_info.query_string.is_null() {
     unsafe {
-      php_register_variable(QUERY_STRING.as_ptr(), request_info.query_string.cast_const(), vars);
+      ext_php_rs::ffi::php_register_variable(
+        QUERY_STRING.as_ptr(),
+        request_info.query_string.cast_const(),
+        vars,
+      );
     }
   }
 
@@ -342,30 +347,53 @@ fn pasir_finish_request() -> bool {
 
 #[cfg(test)]
 pub(crate) mod tests {
-  use ext_php_rs::embed::ext_php_rs_sapi_shutdown;
-  use ext_php_rs::embed::ext_php_rs_sapi_startup;
+  use std::collections::HashMap;
+  use std::net::Ipv4Addr;
+  use std::path::PathBuf;
+
+  use hyper::Request;
 
   use super::*;
+  use crate::sapi::context::ContextBuilder;
+  use crate::sapi::context::ContextSender;
+  use crate::service::php::PhpRoute;
 
   pub(crate) struct TestSapi(*mut SapiModule);
 
   impl TestSapi {
     pub(crate) fn new() -> Self {
       let sapi = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
+        .read_cookies_function(read_cookies_test)
         .build()
         .unwrap()
         .into_raw();
-      unsafe { ext_php_rs_sapi_startup() }
-      unsafe { sapi_startup(sapi) }
+      unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
+      unsafe { ext_php_rs::ffi::sapi_startup(sapi) };
       Self(sapi)
     }
   }
 
   impl Drop for TestSapi {
     fn drop(&mut self) {
-      unsafe { sapi_shutdown() }
-      unsafe { ext_php_rs_sapi_shutdown() }
+      unsafe { ext_php_rs::ffi::php_module_shutdown() };
+      unsafe { ext_php_rs::ffi::sapi_shutdown() };
+      unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
     }
+  }
+
+  extern "C" fn read_cookies_test() -> *mut c_char {
+    std::ptr::null_mut()
+  }
+
+  /// Macro to assert server variable values
+  /// Usage: assert_var!(server_variables, REQUEST_URI, "/foo/bar")
+  macro_rules! assert_var {
+    ($server_variables:expr, $var:ident, $expected:expr) => {
+      assert_eq!(
+        $server_variables.get($var.to_str().unwrap()).unwrap().string().unwrap(),
+        $expected
+      );
+    };
   }
 
   /// Test SAPI module creation
@@ -403,19 +431,6 @@ pub(crate) mod tests {
     }
   }
 
-  #[test]
-  fn test_sapi_startup_shutdown() {
-    let sapi = TestSapi::new();
-
-    assert_eq!(ZEND_RESULT_CODE_SUCCESS, startup(sapi.0));
-    assert_eq!(ZEND_RESULT_CODE_SUCCESS, shutdown(sapi.0))
-  }
-
-  #[test]
-  fn test_ub_write() {
-    assert_eq!(ub_write(std::ptr::null_mut(), 0), 0);
-  }
-
   /// Test multiple SAPI instances can be created
   /// This ensures SAPI creation is properly isolated
   #[test]
@@ -439,6 +454,158 @@ pub(crate) mod tests {
     // These should compile without error due to our unsafe impl Send/Sync
     assert_send::<Sapi>();
     assert_sync::<Sapi>();
+  }
+
+  #[test]
+  fn test_sapi_startup_shutdown() {
+    let sapi = TestSapi::new();
+
+    assert_eq!(ZEND_RESULT_CODE_SUCCESS, startup(sapi.0));
+    assert_eq!(ZEND_RESULT_CODE_SUCCESS, shutdown(sapi.0))
+  }
+
+  #[test]
+  fn test_ub_write() {
+    assert_eq!(ub_write(std::ptr::null_mut(), 0), 0);
+
+    let _sapi = TestSapi::new();
+
+    // assert `ub_write` without server context.
+    assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
+
+    let (_, _body_rx, context_sender) = ContextSender::receiver();
+    let context = ContextBuilder::new().sender(context_sender).build();
+
+    SapiGlobals::get_mut().server_context = context.into_raw().cast();
+    assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
+
+    unsafe { ext_php_rs::ffi::php_output_startup() };
+    let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+    assert!(context.finish_request());
+    assert_eq!(ub_write(c"Foo".as_ptr(), 3), 0);
+  }
+
+  #[tokio::test]
+  async fn test_send_header() {
+    send_header(std::ptr::null_mut(), std::ptr::null_mut());
+
+    let _sapi = TestSapi::new();
+
+    let (head_rx, _, context_sender) = ContextSender::receiver();
+    let context = ContextBuilder::new().sender(context_sender).build();
+    let context_raw = context.into_raw();
+    let header = SapiHeader { header: c"Foo: Bar".as_ptr().cast_mut(), header_len: 8 };
+    let header_raw = Box::into_raw(Box::new(header));
+    send_header(header_raw, context_raw.cast());
+
+    unsafe { ext_php_rs::ffi::php_output_startup() };
+    let mut context = unsafe { Context::from_raw(context_raw.cast()) };
+    context.finish_request();
+
+    let head = head_rx.await.unwrap();
+    assert_eq!(head.headers.get("Foo"), Some(&HeaderValue::from_static("Bar")));
+  }
+
+  #[test]
+  fn test_read_post() {
+    let _sapi = TestSapi::new();
+
+    let buffer = CString::default();
+    let buffer_raw = buffer.into_raw();
+    assert_eq!(read_post(buffer_raw, 0), 0);
+
+    let request = Request::new(Bytes::from_static(b"Foo"));
+    let context = ContextBuilder::new().request(request).build();
+    SapiGlobals::get_mut().server_context = context.into_raw().cast();
+    SapiGlobals::get_mut().request_info.content_length = 3;
+
+    assert_eq!(read_post(buffer_raw, 1), 1);
+    SapiGlobals::get_mut().read_post_bytes = 1;
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"F");
+
+    let buffer = CString::default();
+    let buffer_raw = buffer.into_raw();
+    assert_eq!(read_post(buffer_raw, 3), 2);
+    SapiGlobals::get_mut().read_post_bytes = 3;
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"oo");
+
+    let buffer = CString::default();
+    let buffer_raw = buffer.into_raw();
+    assert_eq!(read_post(buffer_raw, 3), 0);
+
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"");
+
+    let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+  }
+
+  #[test]
+  fn test_read_cookies() {
+    let _sapi = TestSapi::new();
+
+    let request = Request::builder().header("Cookie", "foo=bar").body(Bytes::default()).unwrap();
+    let context = ContextBuilder::new().request(request).build();
+    SapiGlobals::get_mut().server_context = context.into_raw().cast();
+    assert_eq!(unsafe { CString::from_raw(read_cookies()) }, CString::new("foo=bar").unwrap());
+
+    let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+  }
+
+  #[test]
+  fn test_register_server_variables() -> anyhow::Result<()> {
+    let _sapi = TestSapi::new();
+    assert_eq!(
+      unsafe { ext_php_rs::ffi::php_module_startup(_sapi.0, std::ptr::null_mut()) },
+      ZEND_RESULT_CODE_SUCCESS
+    );
+    assert_eq!(unsafe { ext_php_rs::ffi::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
+
+    let localhost = Ipv4Addr::LOCALHOST;
+    let root = PathBuf::from("/foo");
+    let route = PhpRoute::new("/index.php".to_string(), Some("/foo/bar".to_string()));
+    let request = Request::builder()
+      .header("Cookie", "foo=bar")
+      .header("Host", localhost.to_string())
+      .body(Bytes::default())?;
+    let context = ContextBuilder::new().root(root).route(route).request(request).build();
+
+    let mut sapi_globals = SapiGlobals::get_mut();
+    sapi_globals.request_info.request_uri = c"/foo/bar".as_ptr().cast_mut();
+    sapi_globals.request_info.request_method = c"GET".as_ptr().cast_mut();
+    sapi_globals.request_info.query_string = c"foo=bar".as_ptr().cast_mut();
+    sapi_globals.server_context = context.into_raw().cast();
+    drop(sapi_globals);
+
+    let mut vars = Zval::new();
+    let _ = vars.set_array(HashMap::<String, String>::new());
+    assert!(vars.is_array());
+    let vars_raw = Box::into_raw(Box::new(vars));
+    register_server_variables(vars_raw);
+
+    let zval = unsafe { Box::from_raw(vars_raw) };
+    let vars = zval.array().unwrap();
+    assert!(vars.get(SERVER_SOFTWARE.to_str()?).is_some());
+    assert_var!(vars, REQUEST_URI, "/foo/bar");
+    assert_var!(vars, REQUEST_METHOD, "GET");
+    assert_var!(vars, QUERY_STRING, "foo=bar");
+    assert_var!(vars, PHP_SELF, "/index.php/foo/bar");
+    assert_var!(vars, SERVER_PROTOCOL, "HTTP/1.1");
+    assert_var!(vars, DOCUMENT_ROOT, "/foo");
+    assert_var!(vars, REMOTE_ADDR, localhost.to_string());
+    assert_var!(vars, REMOTE_PORT, "0");
+    assert_var!(vars, SCRIPT_FILENAME, "/foo/index.php");
+    assert_var!(vars, SERVER_ADDR, localhost.to_string());
+    assert_var!(vars, SERVER_PORT, "0");
+    assert_var!(vars, SCRIPT_NAME, "/index.php");
+    assert_var!(vars, PATH_INFO, "/foo/bar");
+    assert_var!(vars, SERVER_NAME, localhost.to_string());
+    assert_eq!(vars.get("HTTP_COOKIE").unwrap().string().unwrap(), "foo=bar");
+    assert_eq!(vars.get("HTTP_HOST").unwrap().string().unwrap(), localhost.to_string());
+
+    let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+    Ok(())
   }
 
   /// Test get_request_time callback
