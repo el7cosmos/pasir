@@ -67,4 +67,4 @@ jobs:
           tool: nextest
       - run: cargo clippy
       - run: cargo build
-      - run: cargo nextest run
+      - run: cargo nextest run --no-fail-fast

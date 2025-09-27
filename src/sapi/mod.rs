@@ -221,7 +221,7 @@ extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
 
   let context = Context::from_server_context(sapi_globals.server_context);
   let bytes = context.body_mut().split_to(to_read);
-  unsafe { buffer.copy_from(bytes.as_ptr().cast::<c_char>(), bytes.len()) }
+  unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, bytes.len()) };
   bytes.len()
 }
 
@@ -519,7 +519,7 @@ pub(crate) mod tests {
     let buffer_raw = buffer.into_raw();
     assert_eq!(read_post(buffer_raw, 0), 0);
 
-    let request = Request::new(Bytes::from("Foo"));
+    let request = Request::new(Bytes::from_static(b"Foo"));
     let context = ContextBuilder::new().request(request).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     SapiGlobals::get_mut().request_info.content_length = 3;
@@ -527,21 +527,21 @@ pub(crate) mod tests {
     assert_eq!(read_post(buffer_raw, 1), 1);
     SapiGlobals::get_mut().read_post_bytes = 1;
     let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.into_string().unwrap(), "F");
+    assert_eq!(buffer.as_c_str(), c"F");
 
     let buffer = CString::default();
     let buffer_raw = buffer.into_raw();
     assert_eq!(read_post(buffer_raw, 3), 2);
     SapiGlobals::get_mut().read_post_bytes = 3;
     let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.into_string().unwrap(), "oo");
+    assert_eq!(buffer.as_c_str(), c"oo");
 
     let buffer = CString::default();
     let buffer_raw = buffer.into_raw();
     assert_eq!(read_post(buffer_raw, 3), 0);
 
     let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.into_string().unwrap(), "");
+    assert_eq!(buffer.as_c_str(), c"");
 
     let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
   }
