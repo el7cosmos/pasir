@@ -67,6 +67,4 @@ jobs:
           tool: nextest
       - run: cargo clippy
       - run: cargo build
-      - run: |
-          cargo nextest run test_register_server_variables
-          cargo nextest run -- --skip test_register_server_variables
+      - run: cargo nextest run

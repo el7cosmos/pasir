@@ -371,11 +371,6 @@ pub(crate) mod tests {
       unsafe { ext_php_rs::ffi::sapi_startup(sapi) };
       Self(sapi)
     }
-
-    pub(crate) fn module_startup(self) -> Self {
-      unsafe { ext_php_rs::ffi::php_module_startup(self.0, std::ptr::null_mut()) };
-      self
-    }
   }
 
   impl Drop for TestSapi {
@@ -560,7 +555,12 @@ pub(crate) mod tests {
 
   #[test]
   fn test_register_server_variables() -> anyhow::Result<()> {
-    let _sapi = TestSapi::new().module_startup();
+    let _sapi = TestSapi::new();
+    assert_eq!(
+      unsafe { ext_php_rs::ffi::php_module_startup(_sapi.0, std::ptr::null_mut()) },
+      ZEND_RESULT_CODE_SUCCESS
+    );
+    assert_eq!(unsafe { ext_php_rs::ffi::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
 
     let localhost = Ipv4Addr::LOCALHOST;
     let root = PathBuf::from("/foo");
@@ -603,6 +603,8 @@ pub(crate) mod tests {
     assert_var!(vars, SERVER_NAME, localhost.to_string());
     assert_eq!(vars.get("HTTP_COOKIE").unwrap().string().unwrap(), "foo=bar");
     assert_eq!(vars.get("HTTP_HOST").unwrap().string().unwrap(), localhost.to_string());
+
+    let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
     Ok(())
   }
 
