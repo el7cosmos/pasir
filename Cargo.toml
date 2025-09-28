@@ -1,7 +1,12 @@
 [package]
 name = "pasir"
-description = "PHP Application Server In Rust"
+version = "0.4.0"
 edition = "2024"
+description = "PHP Application Server In Rust"
+repository = "https://github.com/el7cosmos/pasir"
+license = "GPL-3.0-or-later"
+keywords = ["php", "sapi", "http"]
+categories = ["web-programming::http-server"]
 build = "build/mod.rs"
 
 [dependencies]
@@ -37,13 +42,13 @@ anyhow = "1.0.98"
 serde_json = "1.0.145"
 which = "8.0.0"
 
-[patch.crates-io]
-ext-php-rs = { git = "https://github.com/el7cosmos/ext-php-rs.git", branch = "static" }
-
 [features]
 default = ["ext-php-rs/runtime"]
 clang_static = ["ext-php-rs/static"]
 static = []
+
+[patch.crates-io]
+ext-php-rs = { git = "https://github.com/el7cosmos/ext-php-rs.git", branch = "static" }
 
 [profile.dev]
 debug = true
