@@ -36,7 +36,6 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          build-args: PASIR_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           file: docker/musl.Dockerfile
@@ -98,8 +97,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
       - run: cargo build --bins --features static --release
-        env:
-          PASIR_VERSION: ${{ github.ref_name }}
       - id: target
         run: echo "target=$(rustup target list --installed)" >> "$GITHUB_OUTPUT"
       - run: cp target/release/pasir ./pasir-${{ steps.target.outputs.target }}

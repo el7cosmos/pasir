@@ -31,11 +31,6 @@ pub fn find_executable(name: &str, env_name: &str) -> anyhow::Result<PathBuf> {
 }
 
 fn main() -> anyhow::Result<()> {
-  println!("cargo:rerun-if-env-changed=PASIR_VERSION");
-  if let Ok(version) = std::env::var("PASIR_VERSION") {
-    println!("cargo:rustc-env=CARGO_PKG_VERSION={version}");
-  }
-
   println!("cargo:rerun-if-env-changed=PHP");
   let php = find_executable("php", "PHP")?;
   let info = PHPInfo::get(&php)?;

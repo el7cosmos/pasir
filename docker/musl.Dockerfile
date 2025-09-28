@@ -1,5 +1,3 @@
-ARG PASIR_VERSION=0.0.0
-
 FROM rust:alpine AS builder
 
 # Install SPC dependencies
@@ -63,7 +61,7 @@ WORKDIR /pasir
 
 COPY . .
 
-RUN PASIR_VERSION=${PASIR_VERSION} cargo build \
+RUN cargo build \
         --bins \
         --features clang_static,static \
         --no-default-features \
