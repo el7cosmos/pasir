@@ -29,8 +29,8 @@ impl FromSapiHeaders for StatusCode {
 mod tests {
   use std::os::raw::c_int;
 
-  use ext_php_rs::ffi::_zend_llist;
   use ext_php_rs::zend::SapiHeaders;
+  use ext_php_rs::zend::ZendLinkedList;
   use hyper::StatusCode;
   use proptest::prelude::*;
 
@@ -42,7 +42,7 @@ mod tests {
 
   impl SapiHeadersTestExt for SapiHeaders {
     fn new(rc: c_int) -> SapiHeaders {
-      let headers = _zend_llist {
+      let headers = ZendLinkedList {
         head: std::ptr::null_mut(),
         tail: std::ptr::null_mut(),
         count: 0,

@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::ffi::CStr;
 use std::io::Write;
 
-use ext_php_rs::ffi::module_registry;
-use ext_php_rs::ffi::zend_extension;
-use ext_php_rs::ffi::zend_extensions;
-use ext_php_rs::ffi::zend_module_entry;
 use nu_ansi_term::Color;
+use pasir::ffi::module_registry;
+use pasir::ffi::zend_extension;
+use pasir::ffi::zend_extensions;
+use pasir::ffi::zend_module_entry;
 
 use crate::cli::Executable;
 
