@@ -45,8 +45,8 @@ serde_json = "1.0.145"
 which = "8.0.0"
 
 [features]
-default = ["ext-php-rs/runtime", "bindgen/runtime"]
-clang_static = ["ext-php-rs/static", "bindgen/static"]
+default = ["bindgen/runtime"]
+clang_static = ["bindgen/static"]
 static = []
 
 [patch.crates-io]
