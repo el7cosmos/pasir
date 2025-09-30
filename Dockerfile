@@ -23,7 +23,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --bins --release
+RUN LIBRARY_PATH=/usr/local/lib cargo build --bins --release
 
 FROM php:${PHP_VERSION}-zts-${VARIANT}
 
