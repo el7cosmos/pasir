@@ -15,8 +15,6 @@ use std::time::SystemTime;
 use bytes::Bytes;
 use bytes::BytesMut;
 use ext_php_rs::builders::SapiBuilder;
-use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
-use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::prelude::*;
 use ext_php_rs::types::Zval;
 use ext_php_rs::zend::FunctionEntry;
@@ -28,6 +26,8 @@ use headers::Host;
 use hyper::Uri;
 use hyper::header::HeaderName;
 use hyper::header::HeaderValue;
+use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
+use pasir::ffi::ZEND_RESULT_CODE_SUCCESS;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -72,7 +72,7 @@ impl Sapi {
     let functions = Box::into_raw(functions.into_boxed_slice());
 
     let mut sapi_module = builder.build().unwrap();
-    sapi_module.sapi_error = Some(ext_php_rs::ffi::zend_error);
+    sapi_module.sapi_error = Some(pasir::ffi::zend_error);
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.additional_functions = functions.cast();
     Self(sapi_module.into_raw())
@@ -86,7 +86,7 @@ impl Sapi {
       true => None,
       false => Some(sapi_module.ini_entries),
     };
-    unsafe { ext_php_rs::ffi::sapi_startup(sapi_module_ptr) };
+    unsafe { pasir::ffi::sapi_startup(sapi_module_ptr) };
     if let Some(entries) = ini_entries {
       unsafe { (*sapi_module_ptr).ini_entries = entries }
     }
@@ -103,7 +103,7 @@ impl Sapi {
     if let Some(shutdown) = unsafe { *self.0 }.shutdown {
       unsafe { shutdown(self.0) };
     }
-    unsafe { ext_php_rs::ffi::sapi_shutdown() }
+    unsafe { pasir::ffi::sapi_shutdown() }
   }
 }
 
@@ -133,11 +133,11 @@ impl Drop for Sapi {
 }
 
 extern "C" fn startup(sapi: *mut SapiModule) -> c_int {
-  unsafe { ext_php_rs::ffi::php_module_startup(sapi, std::ptr::null_mut()) }
+  unsafe { pasir::ffi::php_module_startup(sapi, std::ptr::null_mut()) }
 }
 
 extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
-  unsafe { ext_php_rs::ffi::php_module_shutdown() };
+  unsafe { pasir::ffi::php_module_shutdown() };
   ZEND_RESULT_CODE_SUCCESS as c_int
 }
 
@@ -249,7 +249,7 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   let request_info = sapi_globals.request_info();
   if !request_info.request_uri.is_null() {
     unsafe {
-      ext_php_rs::ffi::php_register_variable(
+      pasir::ffi::php_register_variable(
         REQUEST_URI.as_ptr(),
         request_info.request_uri.cast_const(),
         vars,
@@ -258,16 +258,12 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   }
   if !request_info.request_method.is_null() {
     unsafe {
-      ext_php_rs::ffi::php_register_variable(
-        REQUEST_METHOD.as_ptr(),
-        request_info.request_method,
-        vars,
-      );
+      pasir::ffi::php_register_variable(REQUEST_METHOD.as_ptr(), request_info.request_method, vars);
     }
   }
   if !request_info.query_string.is_null() {
     unsafe {
-      ext_php_rs::ffi::php_register_variable(
+      pasir::ffi::php_register_variable(
         QUERY_STRING.as_ptr(),
         request_info.query_string.cast_const(),
         vars,
@@ -368,15 +364,15 @@ pub(crate) mod tests {
         .unwrap()
         .into_raw();
       unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
-      unsafe { ext_php_rs::ffi::sapi_startup(sapi) };
+      unsafe { pasir::ffi::sapi_startup(sapi) };
       Self(sapi)
     }
   }
 
   impl Drop for TestSapi {
     fn drop(&mut self) {
-      unsafe { ext_php_rs::ffi::php_module_shutdown() };
-      unsafe { ext_php_rs::ffi::sapi_shutdown() };
+      unsafe { pasir::ffi::php_module_shutdown() };
+      unsafe { pasir::ffi::sapi_shutdown() };
       unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
     }
   }
@@ -479,7 +475,7 @@ pub(crate) mod tests {
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
 
-    unsafe { ext_php_rs::ffi::php_output_startup() };
+    unsafe { pasir::ffi::php_output_startup() };
     let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
     assert!(context.finish_request());
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 0);
@@ -498,7 +494,7 @@ pub(crate) mod tests {
     let header_raw = Box::into_raw(Box::new(header));
     send_header(header_raw, context_raw.cast());
 
-    unsafe { ext_php_rs::ffi::php_output_startup() };
+    unsafe { pasir::ffi::php_output_startup() };
     let mut context = unsafe { Context::from_raw(context_raw.cast()) };
     context.finish_request();
 
@@ -557,10 +553,10 @@ pub(crate) mod tests {
   fn test_register_server_variables() -> anyhow::Result<()> {
     let _sapi = TestSapi::new();
     assert_eq!(
-      unsafe { ext_php_rs::ffi::php_module_startup(_sapi.0, std::ptr::null_mut()) },
+      unsafe { pasir::ffi::php_module_startup(_sapi.0, std::ptr::null_mut()) },
       ZEND_RESULT_CODE_SUCCESS
     );
-    assert_eq!(unsafe { ext_php_rs::ffi::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
+    assert_eq!(unsafe { pasir::ffi::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
 
     let localhost = Ipv4Addr::LOCALHOST;
     let root = PathBuf::from("/foo");

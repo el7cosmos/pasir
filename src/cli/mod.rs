@@ -2,16 +2,15 @@ mod info;
 mod module;
 pub mod serve;
 
-use std::ffi::CStr;
 use std::path::PathBuf;
 
 use clap_verbosity_flag::InfoLevel;
 use clap_verbosity_flag::Verbosity;
-use ext_php_rs::ffi::PHP_VERSION;
-use ext_php_rs::ffi::ZEND_RESULT_CODE_FAILURE;
-use ext_php_rs::ffi::ZEND_RESULT_CODE_SUCCESS;
 use ext_php_rs::zend::ExecutorGlobals;
 use pasir::error::PhpError;
+use pasir::ffi::PHP_VERSION;
+use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
+use pasir::ffi::ZEND_RESULT_CODE_SUCCESS;
 #[cfg(php83)]
 use tokio::runtime::Handle;
 
@@ -24,7 +23,7 @@ pub trait Executable {
   async fn execute(self) -> anyhow::Result<()>;
 
   fn request_startup() -> anyhow::Result<()> {
-    if unsafe { ext_php_rs::ffi::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
+    if unsafe { pasir::ffi::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
       return Err(anyhow::anyhow!(PhpError::RequestStartupFailed));
     }
 
@@ -33,8 +32,8 @@ pub trait Executable {
 
   fn request_shutdown() {
     ExecutorGlobals::get_mut().exit_status = ZEND_RESULT_CODE_SUCCESS;
-    unsafe { ext_php_rs::ffi::php_output_end_all() };
-    unsafe { ext_php_rs::ffi::php_request_shutdown(std::ptr::null_mut()) };
+    unsafe { pasir::ffi::php_output_end_all() };
+    unsafe { pasir::ffi::php_request_shutdown(std::ptr::null_mut()) };
   }
 }
 
@@ -80,7 +79,7 @@ impl Executable for Cli {
     #[cfg(php83)]
     {
       let expected_threads = Handle::current().metrics().num_workers().cast_signed();
-      if !unsafe { ext_php_rs::ffi::php_tsrm_startup_ex(expected_threads.try_into()?) } {
+      if !unsafe { pasir::ffi::php_tsrm_startup_ex(expected_threads.try_into()?) } {
         anyhow::bail!("Failed to start PHP TSRM");
       }
     }
@@ -112,11 +111,7 @@ impl Executable for Cli {
 }
 
 fn long_version() -> String {
-  format!(
-    "{}\nPHP {}",
-    env!("CARGO_PKG_VERSION"),
-    CStr::from_bytes_with_nul(PHP_VERSION).unwrap().to_string_lossy()
-  )
+  format!("{}\nPHP {}", env!("CARGO_PKG_VERSION"), PHP_VERSION.to_string_lossy())
 }
 
 fn parse_root(arg: &str) -> Result<PathBuf, std::io::Error> {

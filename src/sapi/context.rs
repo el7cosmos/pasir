@@ -144,7 +144,7 @@ impl Context {
       return false;
     }
 
-    unsafe { ext_php_rs::ffi::php_output_end_all() }
+    unsafe { pasir::ffi::php_output_end_all() }
 
     if let Some(body_tx) = self.sender.body.take() {
       body_tx.abort();
@@ -274,7 +274,7 @@ mod tests {
     let context = Context::new(root.clone(), route, stream, request, context_sender);
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
-    unsafe { ext_php_rs::ffi::php_output_startup() };
+    unsafe { pasir::ffi::php_output_startup() };
     let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
 
     // assert that `flush` is true if the request not finished yet.
