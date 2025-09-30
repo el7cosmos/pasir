@@ -22,7 +22,7 @@ hyper = { version = "1.7.0", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1.17", features = ["server-auto", "service", "tokio", "server-graceful"] }
 nu-ansi-term = "0.50.1"
 regex = "1.11.2"
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 toml = "0.9.7"
