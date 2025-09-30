@@ -1,6 +1,6 @@
 [package]
 name = "pasir"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2024"
 description = "PHP Application Server In Rust"
 repository = "https://github.com/el7cosmos/pasir"
