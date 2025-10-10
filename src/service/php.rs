@@ -11,7 +11,6 @@ use std::task::Poll;
 
 use bytes::Bytes;
 use ext_php_rs::embed::Embed;
-use ext_php_rs::embed::ext_php_rs_sapi_per_thread_init;
 use ext_php_rs::zend::SapiGlobals;
 use ext_php_rs::zend::try_catch_first;
 use headers::ContentLength;
@@ -65,36 +64,47 @@ impl Service<Request<Incoming>> for PhpService {
         Err(_) => return Response::internal_server_error(error_body),
       };
 
-      unsafe { ext_php_rs_sapi_per_thread_init() }
-      unsafe { pasir::ffi::zend_update_current_locale() }
-      let path_translated = format!("{}{}", root.to_str().unwrap(), route.script_name());
-      if init_sapi_globals(&head, path_translated.as_str()).is_err() {
-        return Response::bad_request(error_body);
-      }
-
+      let (error_tx, error_rx) = tokio::sync::oneshot::channel::<
+        fn(error_body: UnsyncBoxBody<Bytes, Infallible>) -> Result<Self::Response, Infallible>,
+      >();
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
-      let request = Request::from_parts(head, bytes);
-      let context = Context::new(root, route, stream, request, context_tx);
-      if let Err(err) = execute_php(context) {
-        return match err {
-          PhpError::RequestStartupFailed => Response::service_unavailable(error_body),
-          PhpError::ServerContextCorrupted => Response::internal_server_error(error_body),
-        };
-      }
 
-      match head_rx.await {
-        Ok(mut head) => {
+      tokio::task::spawn_blocking(move || {
+        unsafe { ext_php_rs::embed::ext_php_rs_sapi_per_thread_init() }
+        unsafe { pasir::ffi::zend_update_current_locale() }
+
+        let path_translated = format!("{}{}", root.to_str().unwrap(), route.script_name());
+        if init_sapi_globals(&head, path_translated.as_str()).is_err() {
+          return error_tx.send(Response::bad_request);
+        }
+
+        let request = Request::from_parts(head, bytes);
+        let context = Context::new(root, route, stream, request, context_tx);
+        if let Err(e) = execute_php(context) {
+          let callback = match e {
+            PhpError::RequestStartupFailed => Response::service_unavailable,
+            PhpError::ServerContextCorrupted => Response::internal_server_error,
+          };
+          return error_tx.send(callback);
+        }
+
+        Ok(())
+      });
+
+      tokio::select! {
+        Ok(callback) = error_rx => {
+          callback(error_body)
+        }
+        Ok(mut head) = head_rx => {
           let response_type = head.extensions.get_or_insert_default::<ResponseType>();
           let body = match response_type {
-            ResponseType::Full => {
-              Full::new(body_rx.collect().await.unwrap().to_bytes()).boxed_unsync()
-            }
+            ResponseType::Full => Full::new(body_rx.collect().await.unwrap().to_bytes()).boxed_unsync(),
             ResponseType::Chunked => body_rx.boxed_unsync(),
           };
           let response = Response::from_parts(head, body);
           Ok(response)
         }
-        Err(_) => Response::internal_server_error(error_body),
+        else => Response::internal_server_error(error_body)
       }
     })
   }
@@ -125,7 +135,8 @@ impl PhpRoute {
 fn init_sapi_globals(head: &Parts, path_translated: &str) -> Result<(), NulError> {
   let mut sapi_globals = SapiGlobals::get_mut();
   sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
-  sapi_globals.request_info.request_method = CString::new(head.method.as_str())?.into_raw();
+  sapi_globals.request_info.request_method =
+    CString::new(head.method.as_str())?.into_raw().cast_const();
   sapi_globals.request_info.query_string = head
     .uri
     .query()
@@ -139,8 +150,9 @@ fn init_sapi_globals(head: &Parts, path_translated: &str) -> Result<(), NulError
     .typed_get::<ContentLength>()
     .map_or(0, |content_length| content_length.0.cast_signed());
   sapi_globals.request_info.content_type =
-    head.headers.typed_get::<ContentType>().map_or(Ok(std::ptr::null_mut()), |content_type| {
-      CString::new(content_type.to_string()).map(|content_type| content_type.into_raw())
+    head.headers.typed_get::<ContentType>().map_or(Ok(std::ptr::null()), |content_type| {
+      CString::new(content_type.to_string())
+        .map(|content_type| content_type.into_raw().cast_const())
     })?;
 
   if let Some(auth) = head.headers.get("Authorization") {
