@@ -12,7 +12,7 @@ pub(crate) trait ResponseExt<T> {
 }
 
 impl<T> ResponseExt<T> for Response<T> {
-  fn bad_request(body: T) -> Result<Response<T>, Infallible> {
+  fn bad_request(body: T) -> Result<Self, Infallible> {
     Ok(make_response(StatusCode::BAD_REQUEST, body))
   }
 
@@ -20,7 +20,7 @@ impl<T> ResponseExt<T> for Response<T> {
     Ok(make_response(StatusCode::INTERNAL_SERVER_ERROR, body))
   }
 
-  fn service_unavailable(body: T) -> Result<Response<T>, Infallible> {
+  fn service_unavailable(body: T) -> Result<Self, Infallible> {
     Ok(make_response(StatusCode::SERVICE_UNAVAILABLE, body))
   }
 
