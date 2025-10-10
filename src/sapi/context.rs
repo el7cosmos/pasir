@@ -127,8 +127,7 @@ impl Context {
     if self.sender.head.is_some() {
       let mut head = self.response_head.clone();
       head.extensions.insert(ResponseType::Chunked);
-      self.sender.send_head(head);
-      return true;
+      return self.sender.send_head(head);
     }
 
     false
@@ -149,10 +148,9 @@ impl Context {
     if let Some(body_tx) = self.sender.body.take() {
       body_tx.abort();
     }
-    self.sender.send_head(self.response_head.clone());
 
     self.request_finished = true;
-    true
+    self.sender.send_head(self.response_head.clone())
   }
 }
 
@@ -229,15 +227,18 @@ impl ContextSender {
   }
 
   #[instrument(skip(self))]
-  pub(crate) fn send_head(&mut self, mut headers: Parts) {
+  pub(crate) fn send_head(&mut self, mut headers: Parts) -> bool {
     if let Some(head_tx) = self.head.take() {
       if let Ok(status) = StatusCode::from_sapi_headers(SapiGlobals::get().sapi_headers()) {
         headers.status = status;
       }
       if head_tx.send(headers).is_err() {
         handle_abort_connection();
+        return false;
       }
     }
+
+    true
   }
 }
 

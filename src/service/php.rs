@@ -31,9 +31,9 @@ use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
 use tower::Service;
 use tracing::error;
 use tracing::instrument;
-use tracing::trace;
 
 use crate::cli::serve::Stream;
+use crate::free_raw_cstring_mut;
 use crate::sapi::context::Context;
 use crate::sapi::context::ContextSender;
 use crate::sapi::context::ResponseType;
@@ -199,17 +199,6 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
     error!("catch failed: {:?}", e);
   }
 
-  // Validate server_context before using
-  let server_context = SapiGlobals::get().server_context;
-  if server_context.is_null() || server_context != context_raw.cast::<c_void>() {
-    return Err(PhpError::ServerContextCorrupted);
-  }
-
-  let mut context = unsafe { Context::from_raw(server_context) };
-  if !context.is_request_finished() && !context.finish_request() {
-    trace!("finish request failed");
-  }
-
   Ok(())
 }
 
@@ -218,21 +207,7 @@ fn request_shutdown() {
   unsafe { pasir::ffi::php_request_shutdown(std::ptr::null_mut()) };
 
   let mut request_info = SapiGlobals::get().request_info;
-
-  free_ptr(&mut request_info.request_method.cast_mut());
-  free_ptr(&mut request_info.query_string);
-  free_ptr(&mut request_info.path_translated);
-  free_ptr(&mut request_info.request_uri);
-  free_ptr(&mut request_info.content_type.cast_mut());
-  free_ptr(&mut request_info.cookie_data);
-}
-
-// Helper to free and null a pointer we allocated with into_raw()
-fn free_ptr(ptr: &mut *mut std::os::raw::c_char) {
-  if !ptr.is_null() {
-    let _ = unsafe { CString::from_raw(*ptr) };
-    *ptr = std::ptr::null_mut();
-  }
+  free_raw_cstring_mut!(request_info, path_translated);
 }
 
 /// Resolves a request URI to the appropriate PHP file and path info
