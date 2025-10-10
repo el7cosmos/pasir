@@ -381,6 +381,7 @@ pub(crate) mod tests {
   use std::path::PathBuf;
 
   use hyper::Request;
+  use rstest::rstest;
 
   use super::*;
   use crate::sapi::context::ContextBuilder;
@@ -493,6 +494,27 @@ pub(crate) mod tests {
     assert_eq!(ZEND_RESULT_CODE_SUCCESS, shutdown(sapi.0))
   }
 
+  #[rstest]
+  #[case(false)]
+  #[case::aborted(true)]
+  fn test_deactivate(#[case] aborted: bool) {
+    let _sapi = TestSapi::new();
+
+    let (head_rx, _, context_sender) = ContextSender::receiver();
+    let context = ContextBuilder::new().sender(context_sender).build();
+    let mut sapi_globals = SapiGlobals::get_mut();
+    sapi_globals.server_context = context.into_raw().cast();
+    sapi_globals.sapi_started = true;
+    drop(sapi_globals);
+
+    unsafe { pasir::ffi::php_output_startup() };
+    if aborted {
+      drop(head_rx);
+    }
+    assert_eq!(deactivate(), ZEND_RESULT_CODE_SUCCESS);
+    assert!(SapiGlobals::get().server_context.is_null());
+  }
+
   #[test]
   fn test_ub_write() {
     assert_eq!(ub_write(std::ptr::null_mut(), 0), 0);
@@ -502,7 +524,7 @@ pub(crate) mod tests {
     // assert `ub_write` without server context.
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
 
-    let (_, _body_rx, context_sender) = ContextSender::receiver();
+    let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
     let context = ContextBuilder::new().sender(context_sender).build();
 
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
