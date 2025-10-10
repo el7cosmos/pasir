@@ -26,14 +26,18 @@ use headers::Host;
 use hyper::Uri;
 use hyper::header::HeaderName;
 use hyper::header::HeaderValue;
+use pasir::ffi::ZEND_RESULT_CODE;
 use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
 use pasir::ffi::ZEND_RESULT_CODE_SUCCESS;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
 use tracing::instrument;
+use tracing::trace;
 use tracing::warn;
 
+use crate::free_raw_cstring;
+use crate::free_raw_cstring_mut;
 use crate::sapi::context::Context;
 use crate::sapi::util::*;
 use crate::sapi::variables::*;
@@ -49,6 +53,7 @@ impl Sapi {
     let mut builder = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
       .startup_function(startup)
       .shutdown_function(shutdown)
+      .deactivate_function(deactivate)
       .ub_write_function(ub_write)
       .flush_function(flush)
       .send_header_function(send_header)
@@ -69,12 +74,11 @@ impl Sapi {
       CString::new("fastcgi_finish_request").expect("String contain nul byte").into_raw();
 
     let functions = vec![function_entry, function_alias, FunctionEntry::end()];
-    let functions = Box::into_raw(functions.into_boxed_slice());
 
     let mut sapi_module = builder.build().unwrap();
     sapi_module.sapi_error = Some(pasir::ffi::zend_error);
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
-    sapi_module.additional_functions = functions.cast();
+    sapi_module.additional_functions = Box::into_raw(functions.into_boxed_slice()).cast();
     Self(sapi_module.into_raw())
   }
 
@@ -112,33 +116,62 @@ impl Drop for Sapi {
     unsafe {
       let sapi_module = Box::from_raw(self.0);
 
-      drop(Box::from_raw(sapi_module.name));
-      drop(Box::from_raw(sapi_module.pretty_name));
+      drop(CString::from_raw(sapi_module.name));
+      drop(CString::from_raw(sapi_module.pretty_name));
       if !sapi_module.ini_entries.is_null() {
         #[cfg(not(php83))]
-        drop(Box::from_raw(sapi_module.ini_entries));
+        drop(CString::from_raw(sapi_module.ini_entries));
         #[cfg(php83)]
-        drop(Box::from_raw(sapi_module.ini_entries.cast_mut()));
+        drop(CString::from_raw(sapi_module.ini_entries.cast_mut()));
       }
 
       let additional_functions = std::slice::from_raw_parts(sapi_module.additional_functions, 3);
-      drop(Box::from_raw(additional_functions[0].fname.cast_mut()));
-      drop(Box::from_raw(additional_functions[0].arg_info.cast_mut()));
-      drop(Box::from_raw(additional_functions[1].fname.cast_mut()));
+      if let Some(function) = additional_functions.first() {
+        drop(CString::from_raw(function.fname.cast_mut()));
+        drop(Box::from_raw(function.arg_info.cast_mut()));
+      }
+      if let Some(function) = additional_functions.get(1) {
+        drop(CString::from_raw(function.fname.cast_mut()));
+      }
       drop(Box::from_raw(sapi_module.additional_functions.cast_mut()));
-
-      drop(sapi_module)
     };
   }
 }
 
-extern "C" fn startup(sapi: *mut SapiModule) -> c_int {
+extern "C" fn startup(sapi: *mut SapiModule) -> ZEND_RESULT_CODE {
   unsafe { pasir::ffi::php_module_startup(sapi, std::ptr::null_mut()) }
 }
 
-extern "C" fn shutdown(_sapi: *mut SapiModule) -> c_int {
+extern "C" fn shutdown(_sapi: *mut SapiModule) -> ZEND_RESULT_CODE {
   unsafe { pasir::ffi::php_module_shutdown() };
-  ZEND_RESULT_CODE_SUCCESS as c_int
+  ZEND_RESULT_CODE_SUCCESS
+}
+
+extern "C" fn deactivate() -> ZEND_RESULT_CODE {
+  let sapi_globals = SapiGlobals::get();
+  if !sapi_globals.sapi_started {
+    return ZEND_RESULT_CODE_SUCCESS;
+  }
+
+  if sapi_globals.server_context.is_null() {
+    return ZEND_RESULT_CODE_SUCCESS;
+  }
+
+  let mut request_info = sapi_globals.request_info;
+  free_raw_cstring!(request_info, request_method);
+  free_raw_cstring_mut!(request_info, query_string);
+  free_raw_cstring_mut!(request_info, request_uri);
+  free_raw_cstring!(request_info, content_type);
+  free_raw_cstring_mut!(request_info, cookie_data);
+
+  let mut context = unsafe { Context::from_raw(sapi_globals.server_context) };
+  drop(sapi_globals);
+  if !context.is_request_finished() && !context.finish_request() {
+    trace!("finish request failed");
+    handle_abort_connection();
+  }
+
+  ZEND_RESULT_CODE_SUCCESS
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
