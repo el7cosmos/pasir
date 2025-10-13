@@ -34,13 +34,13 @@ pub(crate) enum ResponseType {
   Chunked,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct Context {
   root: Arc<PathBuf>,
   route: PhpRoute,
   stream: Arc<Stream>,
   request: Request<Bytes>,
-  response_head: Parts,
+  headers: HeaderMap,
   sender: ContextSender,
   request_finished: bool,
 }
@@ -53,8 +53,8 @@ impl Context {
     request: Request<Bytes>,
     sender: ContextSender,
   ) -> Self {
-    let (response_head, _) = Response::<Bytes>::default().into_parts();
-    Self { root, route, stream, request, sender, response_head, request_finished: false }
+    let headers = HeaderMap::new();
+    Self { root, route, stream, request, sender, headers, request_finished: false }
   }
 
   #[must_use = "losing the pointer will leak memory"]
@@ -104,7 +104,7 @@ impl Context {
   where
     K: IntoHeaderName,
   {
-    self.response_head.headers.append(key, value);
+    self.headers.append(key, value);
   }
 
   #[instrument(skip(self, data))]
@@ -125,9 +125,10 @@ impl Context {
   #[instrument(skip(self))]
   pub(crate) fn flush(&mut self) -> bool {
     if self.sender.head.is_some() {
-      let mut head = self.response_head.clone();
-      head.extensions.insert(ResponseType::Chunked);
-      return self.sender.send_head(head);
+      let (mut parts, _) = Response::<Bytes>::default().into_parts();
+      parts.headers = std::mem::take(&mut self.headers);
+      parts.extensions.insert(ResponseType::Chunked);
+      return self.sender.send_head(parts);
     }
 
     false
@@ -150,42 +151,23 @@ impl Context {
     }
 
     self.request_finished = true;
-    self.sender.send_head(self.response_head.clone())
-  }
-}
 
-impl Default for Context {
-  fn default() -> Self {
-    let (head, _) = Response::<Bytes>::default().into_parts();
-    Self {
-      root: Arc::new(Default::default()),
-      route: Default::default(),
-      stream: Arc::new(Default::default()),
-      request: Default::default(),
-      response_head: head,
-      sender: Default::default(),
-      request_finished: false,
+    if self.sender.head.is_some() {
+      let (mut parts, _) = Response::<Bytes>::default().into_parts();
+      parts.headers = std::mem::take(&mut self.headers);
+      return self.sender.send_head(parts);
     }
-  }
-}
 
-impl Drop for Context {
-  fn drop(&mut self) {
-    if !SapiGlobals::get().server_context.is_null() {
-      SapiGlobals::get_mut().server_context = std::ptr::null_mut();
-    }
+    true
   }
 }
 
 #[cfg(test)]
+#[derive(Default)]
 pub struct ContextBuilder(Context);
 
 #[cfg(test)]
 impl ContextBuilder {
-  pub fn new() -> Self {
-    Self(Context::default())
-  }
-
   pub fn root(mut self, root: impl Into<PathBuf>) -> Self {
     self.0.root = Arc::new(root.into());
     self
@@ -244,35 +226,19 @@ impl ContextSender {
 
 #[cfg(test)]
 mod tests {
-  use std::net::IpAddr;
-  use std::net::Ipv4Addr;
-  use std::net::SocketAddr;
-  use std::path::PathBuf;
-  use std::sync::Arc;
-
-  use bytes::Bytes;
   use ext_php_rs::zend::SapiGlobals;
-  use hyper::Request;
 
-  use crate::cli::serve::Stream;
   use crate::sapi::context::Context;
+  use crate::sapi::context::ContextBuilder;
   use crate::sapi::context::ContextSender;
   use crate::sapi::tests::TestSapi;
-  use crate::service::php::PhpRoute;
 
   #[test]
   fn test_context_flush() {
     let _sapi = TestSapi::new();
 
-    let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
-    let root = Arc::new(PathBuf::default());
-    let route = PhpRoute::default();
-    let stream = Arc::new(Stream::new(socket, socket));
-    let request = Request::new(Bytes::default());
-
     let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
-
-    let context = Context::new(root.clone(), route, stream, request, context_sender);
+    let context = ContextBuilder::default().sender(context_sender).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
     unsafe { pasir::ffi::php_output_startup() };

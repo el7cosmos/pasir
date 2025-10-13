@@ -170,6 +170,7 @@ extern "C" fn deactivate() -> ZEND_RESULT_CODE {
     trace!("finish request failed");
     handle_abort_connection();
   }
+  SapiGlobals::get_mut().server_context = std::ptr::null_mut();
 
   ZEND_RESULT_CODE_SUCCESS
 }
@@ -501,7 +502,7 @@ pub(crate) mod tests {
     let _sapi = TestSapi::new();
 
     let (head_rx, _, context_sender) = ContextSender::receiver();
-    let context = ContextBuilder::new().sender(context_sender).build();
+    let context = ContextBuilder::default().sender(context_sender).build();
     let mut sapi_globals = SapiGlobals::get_mut();
     sapi_globals.server_context = context.into_raw().cast();
     sapi_globals.sapi_started = true;
@@ -525,7 +526,7 @@ pub(crate) mod tests {
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
 
     let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
-    let context = ContextBuilder::new().sender(context_sender).build();
+    let context = ContextBuilder::default().sender(context_sender).build();
 
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     assert_eq!(ub_write(c"Foo".as_ptr(), 3), 3);
@@ -543,7 +544,7 @@ pub(crate) mod tests {
     let _sapi = TestSapi::new();
 
     let (head_rx, _, context_sender) = ContextSender::receiver();
-    let context = ContextBuilder::new().sender(context_sender).build();
+    let context = ContextBuilder::default().sender(context_sender).build();
     let context_raw = context.into_raw();
     let header = SapiHeader { header: c"Foo: Bar".as_ptr().cast_mut(), header_len: 8 };
     let header_raw = Box::into_raw(Box::new(header));
@@ -566,7 +567,7 @@ pub(crate) mod tests {
     assert_eq!(read_post(buffer_raw, 0), 0);
 
     let request = Request::new(Bytes::from_static(b"Foo"));
-    let context = ContextBuilder::new().request(request).build();
+    let context = ContextBuilder::default().request(request).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     SapiGlobals::get_mut().request_info.content_length = 3;
 
@@ -597,7 +598,7 @@ pub(crate) mod tests {
     let _sapi = TestSapi::new();
 
     let request = Request::builder().header("Cookie", "foo=bar").body(Bytes::default()).unwrap();
-    let context = ContextBuilder::new().request(request).build();
+    let context = ContextBuilder::default().request(request).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
     assert_eq!(unsafe { CString::from_raw(read_cookies()) }, CString::new("foo=bar").unwrap());
 
@@ -620,7 +621,7 @@ pub(crate) mod tests {
       .header("Cookie", "foo=bar")
       .header("Host", localhost.to_string())
       .body(Bytes::default())?;
-    let context = ContextBuilder::new().root(root).route(route).request(request).build();
+    let context = ContextBuilder::default().root(root).route(route).request(request).build();
 
     let mut sapi_globals = SapiGlobals::get_mut();
     sapi_globals.request_info.request_uri = c"/foo/bar".as_ptr().cast_mut();
