@@ -25,7 +25,7 @@ regex = "1.11.3"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
-toml = "0.9.7"
+toml = "0.9.8"
 tower = { version = "0.5.2", features = ["timeout", "util"] }
 tower-http = { version = "0.6.6", features = ["add-extension", "fs", "request-id", "set-header", "trace", "util"] }
 tracing = "0.1.41"
