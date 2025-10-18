@@ -332,6 +332,7 @@ impl ContextSender {
 mod tests {
   use std::ffi::c_int;
   use std::path::PathBuf;
+  use std::sync::Arc;
 
   use bytes::Bytes;
   use ext_php_rs::zend::SapiGlobals;
@@ -365,8 +366,10 @@ mod tests {
     #[case] path_info: Option<&str>,
   ) {
     let root = PathBuf::from("tests/fixtures/root");
-    let mut context = ContextBuilder::default().root(root).build();
-    context.parse_uri(request_uri, None);
+    let uri = Uri::builder().path_and_query(request_uri).build().unwrap();
+    let request = Request::builder().uri(uri).body(Bytes::default()).unwrap();
+
+    let context = Context::new(Arc::new(root), Default::default(), request, Default::default());
     assert_eq!(context.script_name(), script_name);
     assert_eq!(context.path_info(), path_info);
   }
