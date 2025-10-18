@@ -352,6 +352,7 @@ mod tests {
 
   #[rstest]
   #[case("/", "/index.php", None)]
+  #[case("/..", "", None)]
   #[case("/foo", "/foo/index.php", None)]
   #[case("/foo/", "/foo/index.php", None)]
   #[case("/foo/bar/baz", "/foo/index.php", Some("/bar/baz"))]
