@@ -311,8 +311,8 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
   let context = Context::from_server_context(sapi_globals.server_context);
   let root = context.root().to_str().unwrap_or_default();
-  let script_name = context.route().script_name();
-  let path_info = context.route().path_info();
+  let script_name = context.script_name();
+  let path_info = context.path_info();
   let php_self = format!("{}{}", script_name, path_info.unwrap_or_default());
 
   register_variable(PHP_SELF, php_self, vars);
@@ -387,7 +387,6 @@ pub(crate) mod tests {
   use super::*;
   use crate::sapi::context::ContextBuilder;
   use crate::sapi::context::ContextSender;
-  use crate::service::php::PhpRoute;
 
   pub(crate) struct TestSapi(*mut SapiModule);
 
@@ -616,12 +615,16 @@ pub(crate) mod tests {
 
     let localhost = Ipv4Addr::LOCALHOST;
     let root = PathBuf::from("/foo");
-    let route = PhpRoute::new("/index.php".to_string(), Some("/foo/bar".to_string()));
     let request = Request::builder()
       .header("Cookie", "foo=bar")
       .header("Host", localhost.to_string())
       .body(Bytes::default())?;
-    let context = ContextBuilder::default().root(root).route(route).request(request).build();
+    let context = ContextBuilder::default()
+      .root(root)
+      .script_name("/index.php")
+      .path_info("/foo/bar")
+      .request(request)
+      .build();
 
     let mut sapi_globals = SapiGlobals::get_mut();
     sapi_globals.request_info.request_uri = c"/foo/bar".as_ptr().cast_mut();
