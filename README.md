@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/github/el7cosmos/pasir/graph/badge.svg?token=0PVbpPLI2S)](https://codecov.io/github/el7cosmos/pasir)
+
 # Pasir
 
 **PHP Application Server In Rust**
