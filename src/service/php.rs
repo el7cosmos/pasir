@@ -16,6 +16,7 @@ use http_body_util::Full;
 use http_body_util::combinators::UnsyncBoxBody;
 use hyper::Request;
 use hyper::Response;
+use hyper::body::Body;
 use hyper::body::Incoming;
 use pasir::error::PhpError;
 use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
@@ -33,7 +34,11 @@ use crate::util::response_ext::ResponseExt;
 #[derive(Clone, Default)]
 pub(crate) struct PhpService {}
 
-impl Service<Request<Incoming>> for PhpService {
+impl<B> Service<Request<B>> for PhpService
+where
+  B: Body + Send + 'static,
+  B::Data: Send,
+{
   type Response = Response<UnsyncBoxBody<Bytes, Infallible>>;
   type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -42,7 +47,7 @@ impl Service<Request<Incoming>> for PhpService {
     Poll::Ready(Ok(()))
   }
 
-  fn call(&mut self, req: Request<Incoming>) -> Self::Future {
+  fn call(&mut self, req: Request<B>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
     let error_body = Empty::default().boxed_unsync();

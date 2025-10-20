@@ -37,7 +37,7 @@ impl Routes {
     Ok(routes)
   }
 
-  pub(crate) fn served_route(&self, request: &Request<Incoming>) -> Option<Route> {
+  pub(crate) fn served_route<B>(&self, request: &Request<B>) -> Option<Route> {
     self
       .routes
       .iter()
