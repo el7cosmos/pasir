@@ -132,7 +132,10 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
 }
 
 fn request_shutdown() {
-  unsafe { pasir::ffi::zend_shutdown_strtod() };
+  #[cfg(php84)]
+  unsafe {
+    pasir::ffi::zend_shutdown_strtod()
+  };
   unsafe { pasir::ffi::php_request_shutdown(std::ptr::null_mut()) };
 
   let mut request_info = SapiGlobals::get().request_info;
@@ -158,7 +161,7 @@ mod tests {
   #[tokio::test]
   async fn test_php_service() {
     let sapi = Sapi::new(false, None);
-    assert!(unsafe { pasir::ffi::php_tsrm_startup_ex(1) });
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
     assert!(sapi.startup().is_ok());
 
     let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
