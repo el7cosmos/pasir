@@ -49,6 +49,8 @@ pub struct Cli {
   address: String,
   #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "modules"])]
   port: Option<u16>,
+  #[arg(short, long, help = "Configuration file for routes, relative to your document root", default_value_os_t = String::from("pasir.toml"))]
+  config: String,
   #[arg(short, long, help = "Define INI entry foo with value 'bar'", value_name = "foo[=bar]", value_parser = parse_define)]
   define: Vec<String>,
   #[arg(short, long, help = "PHP information and configuration", conflicts_with = "modules")]
@@ -99,7 +101,7 @@ impl Executable for Cli {
     } else if self.modules {
       Module {}.execute().await
     } else {
-      Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root)
+      Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root, self.config)
         .execute()
         .await
     };
@@ -143,11 +145,12 @@ mod tests {
 
   proptest! {
     #[test]
-    fn test_config(root: PathBuf, address: Ipv4Addr, port: u16, verbose in 0..3u8, quiet in 0..=3u8) {
+    fn test_config(root: PathBuf, address: Ipv4Addr, port: u16, config: String, verbose in 0..3u8, quiet in 0..=3u8) {
       let cli = Cli {
         root: root.clone(),
         address: address.to_string(),
         port: Some(port),
+        config: config.clone(),
         define: vec![],
         info: false,
         modules: false,
