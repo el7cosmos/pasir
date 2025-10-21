@@ -7,7 +7,6 @@ use http_body_util::BodyExt;
 use hyper::Request;
 use hyper::Response;
 use hyper::body::Body;
-use hyper::body::Incoming;
 use tower::Service;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;

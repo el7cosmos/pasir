@@ -5,7 +5,6 @@ use anyhow::Context;
 use hyper::Request;
 use hyper::Response;
 use hyper::StatusCode;
-use hyper::body::Incoming;
 use hyper::http::HeaderName;
 use hyper::http::HeaderValue;
 use regex::Regex;

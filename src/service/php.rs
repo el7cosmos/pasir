@@ -17,7 +17,6 @@ use http_body_util::combinators::UnsyncBoxBody;
 use hyper::Request;
 use hyper::Response;
 use hyper::body::Body;
-use hyper::body::Incoming;
 use pasir::error::PhpError;
 use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
 use tower::Service;
@@ -138,4 +137,47 @@ fn request_shutdown() {
 
   let mut request_info = SapiGlobals::get().request_info;
   free_raw_cstring_mut!(request_info, path_translated);
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::PathBuf;
+  use std::sync::Arc;
+
+  use bytes::Bytes;
+  use http_body_util::Empty;
+  use hyper::Request;
+  use hyper::StatusCode;
+  use hyper::body::Body;
+  use tower::Service;
+
+  use crate::cli::serve::Stream;
+  use crate::sapi::Sapi;
+  use crate::service::PhpService;
+
+  #[tokio::test]
+  async fn test_php_service() {
+    let sapi = Sapi::new(false, None);
+    assert!(unsafe { pasir::ffi::php_tsrm_startup_ex(1) });
+    assert!(sapi.startup().is_ok());
+
+    let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
+    let stream = Stream::default();
+    let request = Request::builder()
+      .extension(Arc::new(root))
+      .extension(Arc::new(stream))
+      .body(Empty::<Bytes>::default())
+      .unwrap();
+
+    let mut service = PhpService::default();
+
+    let response = service.call(request.clone()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_ne!(response.body().size_hint().lower(), 0);
+
+    // Assert that request shutdown cleanly and further requests can return a response.
+    let response = service.call(request.clone()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_ne!(response.body().size_hint().lower(), 0);
+  }
 }
