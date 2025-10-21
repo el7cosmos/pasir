@@ -34,9 +34,8 @@ RUN apk update; \
         zstd-static
 
 # Install static-php-cli (spc)
-RUN curl -fsSL https://dl.static-php.dev/static-php-cli/spc-bin/nightly/spc-linux-$(uname -m) \
-    -o /usr/local/bin/spc && \
-    chmod +x /usr/local/bin/spc
+RUN curl -fsSL https://github.com/crazywhalecc/static-php-cli/releases/download/2.7.4/spc-linux-$(uname -m).tar.gz | tar xz && \
+    mv spc /usr/local/bin/spc
 
 ENV CC=clang \
     CXX=clang++ \
@@ -54,7 +53,6 @@ COPY craft.yml /spc/craft.yml
 COPY patches /spc/patches
 
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN spc doctor
-
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN spc craft
 
 WORKDIR /pasir
