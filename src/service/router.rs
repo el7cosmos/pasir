@@ -6,7 +6,7 @@ use std::task::Poll;
 use http_body_util::BodyExt;
 use hyper::Request;
 use hyper::Response;
-use hyper::body::Incoming;
+use hyper::body::Body;
 use tower::Service;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;
@@ -39,16 +39,20 @@ impl RouterService {
   }
 }
 
-impl Service<Request<Incoming>> for RouterService {
+impl<B> Service<Request<B>> for RouterService
+where
+  B: Body + Send + 'static,
+  B::Data: Send,
+{
   type Response = Response<ResponseBody>;
   type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-  fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
-    self.php.poll_ready(_cx)
+  fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+    <PhpService as Service<Request<B>>>::poll_ready(&mut self.php, cx)
   }
 
-  fn call(&mut self, req: Request<Incoming>) -> Self::Future {
+  fn call(&mut self, req: Request<B>) -> Self::Future {
     let routes = req.extensions().get::<Arc<Routes>>().unwrap().clone();
     if let Some(mut served_route) = routes.served_route(&req) {
       let future = match served_route.serve() {

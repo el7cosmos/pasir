@@ -16,7 +16,7 @@ use http_body_util::Full;
 use http_body_util::combinators::UnsyncBoxBody;
 use hyper::Request;
 use hyper::Response;
-use hyper::body::Incoming;
+use hyper::body::Body;
 use pasir::error::PhpError;
 use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
 use tower::Service;
@@ -33,7 +33,11 @@ use crate::util::response_ext::ResponseExt;
 #[derive(Clone, Default)]
 pub(crate) struct PhpService {}
 
-impl Service<Request<Incoming>> for PhpService {
+impl<B> Service<Request<B>> for PhpService
+where
+  B: Body + Send + 'static,
+  B::Data: Send,
+{
   type Response = Response<UnsyncBoxBody<Bytes, Infallible>>;
   type Error = Infallible;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -42,7 +46,7 @@ impl Service<Request<Incoming>> for PhpService {
     Poll::Ready(Ok(()))
   }
 
-  fn call(&mut self, req: Request<Incoming>) -> Self::Future {
+  fn call(&mut self, req: Request<B>) -> Self::Future {
     let root = req.extensions().get::<Arc<PathBuf>>().unwrap().clone();
     let stream = req.extensions().get::<Arc<Stream>>().unwrap().clone();
     let error_body = Empty::default().boxed_unsync();
@@ -128,9 +132,55 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
 }
 
 fn request_shutdown() {
-  unsafe { pasir::ffi::zend_shutdown_strtod() };
+  #[cfg(php84)]
+  unsafe {
+    pasir::ffi::zend_shutdown_strtod()
+  };
   unsafe { pasir::ffi::php_request_shutdown(std::ptr::null_mut()) };
 
   let mut request_info = SapiGlobals::get().request_info;
   free_raw_cstring_mut!(request_info, path_translated);
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::PathBuf;
+  use std::sync::Arc;
+
+  use bytes::Bytes;
+  use http_body_util::Empty;
+  use hyper::Request;
+  use hyper::StatusCode;
+  use hyper::body::Body;
+  use tower::Service;
+
+  use crate::cli::serve::Stream;
+  use crate::sapi::Sapi;
+  use crate::service::PhpService;
+
+  #[tokio::test]
+  async fn test_php_service() {
+    let sapi = Sapi::new(false, None);
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
+    assert!(sapi.startup().is_ok());
+
+    let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
+    let stream = Stream::default();
+    let request = Request::builder()
+      .extension(Arc::new(root))
+      .extension(Arc::new(stream))
+      .body(Empty::<Bytes>::default())
+      .unwrap();
+
+    let mut service = PhpService::default();
+
+    let response = service.call(request.clone()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_ne!(response.body().size_hint().lower(), 0);
+
+    // Assert that request shutdown cleanly and further requests can return a response.
+    let response = service.call(request.clone()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_ne!(response.body().size_hint().lower(), 0);
+  }
 }
