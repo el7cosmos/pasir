@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Download spc
         run: |
-          gh release download 2.7.2 -R crazywhalecc/static-php-cli --pattern "spc-${{ matrix.arch }}.tar.gz"
+          gh release download 2.7.4 -R crazywhalecc/static-php-cli --pattern "spc-${{ matrix.arch }}.tar.gz"
           tar -zxvf spc-${{ matrix.arch }}.tar.gz
           rm spc-${{ matrix.arch }}.tar.gz
           mkdir .bin
