@@ -19,6 +19,8 @@ use crate::cli::module::Module;
 use crate::cli::serve::Serve;
 use crate::sapi::Sapi;
 
+const CONFIG: &str = "pasir.toml";
+
 pub trait Executable {
   async fn execute(self) -> anyhow::Result<()>;
 
@@ -49,7 +51,7 @@ pub struct Cli {
   address: String,
   #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "modules"])]
   port: Option<u16>,
-  #[arg(short, long, help = "Configuration file for routes, relative to your document root", default_value_os_t = String::from("pasir.toml"), value_parser = clap::builder::NonEmptyStringValueParser::new())]
+  #[arg(short, long, help = "Configuration file for routes, relative to your document root", default_value_os_t = CONFIG.to_string(), value_parser = clap::builder::NonEmptyStringValueParser::new())]
   config: String,
   #[arg(short, long, help = "Define INI entry foo with value 'bar'", value_name = "foo[=bar]", value_parser = parse_define)]
   define: Vec<String>,
@@ -102,7 +104,7 @@ impl Executable for Cli {
       Module {}.execute().await
     } else {
       let config = self.root.join(self.config);
-      if !config.is_file() {
+      if !config.is_file() && !config.ends_with(CONFIG) {
         anyhow::bail!(
           "invalid value for '--config <CONFIG>': {} is not a file or not readable",
           config.display()
