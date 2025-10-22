@@ -49,7 +49,7 @@ pub struct Cli {
   address: String,
   #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "modules"])]
   port: Option<u16>,
-  #[arg(short, long, help = "Configuration file for routes, relative to your document root", default_value_os_t = String::from("pasir.toml"))]
+  #[arg(short, long, help = "Configuration file for routes, relative to your document root", default_value_os_t = String::from("pasir.toml"), value_parser = clap::builder::NonEmptyStringValueParser::new())]
   config: String,
   #[arg(short, long, help = "Define INI entry foo with value 'bar'", value_name = "foo[=bar]", value_parser = parse_define)]
   define: Vec<String>,
@@ -101,9 +101,21 @@ impl Executable for Cli {
     } else if self.modules {
       Module {}.execute().await
     } else {
-      Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root, self.config)
-        .execute()
-        .await
+      let config = self.root.join(self.config);
+      if !config.is_file() {
+        anyhow::bail!(
+          "invalid value for '--config <CONFIG>': {} is not a file or not readable",
+          config.display()
+        );
+      }
+      Serve::new(
+        self.address,
+        self.port.expect("PORT argument were not provided"),
+        self.root,
+        config,
+      )
+      .execute()
+      .await
     };
 
     Self::shutdown(sapi);

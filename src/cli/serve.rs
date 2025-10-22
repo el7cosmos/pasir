@@ -64,18 +64,18 @@ pub struct Serve {
   address: String,
   port: u16,
   root: PathBuf,
-  config: String,
+  config: PathBuf,
 }
 
 impl Serve {
-  pub fn new(address: String, port: u16, root: PathBuf, config: String) -> Self {
+  pub fn new(address: String, port: u16, root: PathBuf, config: PathBuf) -> Self {
     Self { address, port, root, config }
   }
 
   async fn serve(self) -> anyhow::Result<()> {
     info!("Pasir running on [http://{}:{}]", self.address, self.port);
 
-    let routes = Arc::new(Routes::from_file(self.root.join(self.config))?);
+    let routes = Arc::new(Routes::from_file(self.config)?);
     let listener = TcpListener::bind((self.address, self.port)).await?;
     let http = Builder::new(TokioExecutor::new());
     let graceful = GracefulShutdown::new();
