@@ -131,6 +131,7 @@ Arguments:
 Options:
   -a, --address <ADDRESS>   [env: PASIR_ADDRESS=] [default: 127.0.0.1]
   -p, --port <PORT>         [env: PASIR_PORT=]
+  -c, --config <CONFIG>     Configuration file for routes, relative to the current directory [default: [ROOT]/pasir.toml]
   -d, --define <foo[=bar]>  Define INI entry foo with value 'bar'
   -i, --info                PHP information
   -m, --modules             Show compiled in modules

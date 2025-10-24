@@ -49,6 +49,8 @@ pub struct Cli {
   address: String,
   #[arg(short, long, env = "PASIR_PORT", required_unless_present_any = vec!["info", "modules"])]
   port: Option<u16>,
+  #[arg(short, long, help = "Configuration file for routes, relative to the current directory [default: [ROOT]/pasir.toml]", value_parser = parse_config)]
+  config: Option<PathBuf>,
   #[arg(short, long, help = "Define INI entry foo with value 'bar'", value_name = "foo[=bar]", value_parser = parse_define)]
   define: Vec<String>,
   #[arg(short, long, help = "PHP information and configuration", conflicts_with = "modules")]
@@ -99,9 +101,15 @@ impl Executable for Cli {
     } else if self.modules {
       Module {}.execute().await
     } else {
-      Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root)
-        .execute()
-        .await
+      let config = self.config.unwrap_or(self.root.join("pasir.toml"));
+      Serve::new(
+        self.address,
+        self.port.expect("PORT argument were not provided"),
+        self.root,
+        config,
+      )
+      .execute()
+      .await
     };
 
     Self::shutdown(sapi);
@@ -123,6 +131,15 @@ fn parse_root(arg: &str) -> Result<PathBuf, std::io::Error> {
   })
 }
 
+fn parse_config(arg: &str) -> Result<PathBuf, std::io::Error> {
+  PathBuf::from(arg).canonicalize().and_then(|config| {
+    if !config.is_file() {
+      return Err(std::io::Error::from(std::io::ErrorKind::InvalidFilename));
+    }
+    Ok(config)
+  })
+}
+
 fn parse_define(arg: &str) -> anyhow::Result<String> {
   if arg.split_once('=').is_some() { Ok(arg.to_string()) } else { Ok(format!("{arg}=On")) }
 }
@@ -138,16 +155,18 @@ mod tests {
 
   use crate::cli::Cli;
   use crate::cli::long_version;
+  use crate::cli::parse_config;
   use crate::cli::parse_define;
   use crate::cli::parse_root;
 
   proptest! {
     #[test]
-    fn test_config(root: PathBuf, address: Ipv4Addr, port: u16, verbose in 0..3u8, quiet in 0..=3u8) {
+    fn test_config(root: PathBuf, address: Ipv4Addr, port: u16, config: PathBuf, verbose in 0..3u8, quiet in 0..=3u8) {
       let cli = Cli {
         root: root.clone(),
         address: address.to_string(),
         port: Some(port),
+        config: Some(config),
         define: vec![],
         info: false,
         modules: false,
@@ -180,6 +199,16 @@ mod tests {
     assert!(parse_root("./tests/fixtures/routes.toml").is_err());
     // Root exists and is a directory.
     assert!(parse_root("tests/fixtures").is_ok());
+  }
+
+  #[test]
+  fn test_parse_config() {
+    // Not found.
+    assert!(parse_config("./tests/foo").is_err());
+    // Not a file.
+    assert!(parse_config("./tests/fixtures").is_err());
+    // Config exists and is a file.
+    assert!(parse_config("tests/fixtures/routes.toml").is_ok());
   }
 
   #[test]
