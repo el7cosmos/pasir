@@ -1226,6 +1226,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "nu-ansi-term",
+ "pasir_build",
  "predicates",
  "proptest",
  "regex",
@@ -1239,6 +1240,13 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "pasir_build"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "which",
 ]
 

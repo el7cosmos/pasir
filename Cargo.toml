@@ -1,16 +1,29 @@
 [package]
 name = "pasir"
 version = "0.5.4"
-edition = "2024"
+edition.workspace = true
 description = "PHP Application Server In Rust"
-repository = "https://github.com/el7cosmos/pasir"
+repository.workspace = true
 license = "GPL-3.0-or-later"
 keywords = ["php", "sapi", "http"]
 categories = ["web-programming::http-server"]
 build = "build/mod.rs"
 
-[dependencies]
+[workspace]
+members = [
+    "crates/pasir_build",
+]
+
+[workspace.package]
+edition = "2024"
+repository = "https://github.com/el7cosmos/pasir"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
 anyhow = "1.0.100"
+
+[dependencies]
+anyhow.workspace = true
 bytes = "1.10.1"
 clap = { version = "4.5.50", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
 clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
@@ -41,8 +54,8 @@ rstest = { version = "0.26.1", default-features = false }
 anyhow = "1.0.100"
 bindgen = { version = "0.72.1", default-features = false }
 cargo-manifest = "0.19.1"
+pasir_build = { version = "0.1.0", path = "crates/pasir_build" }
 serde_json = "1.0.145"
-which = "8.0.0"
 
 [features]
 default = ["ext-php-rs/runtime"]
