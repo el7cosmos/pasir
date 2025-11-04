@@ -1,7 +1,6 @@
 use std::ffi::CString;
 use std::ffi::NulError;
 use std::ffi::c_int;
-use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,6 +22,7 @@ use hyper::http::HeaderValue;
 use hyper::http::response::Parts;
 use pasir::unbound_channel::Sender;
 use pasir::unbound_channel::UnboundChannel;
+use pasir_sapi::context::ServerContext;
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::oneshot::Sender as OneShotSender;
 use tracing::debug;
@@ -30,7 +30,6 @@ use tracing::instrument;
 
 use crate::cli::serve::Stream;
 use crate::sapi::ext::FromSapiHeaders;
-use crate::sapi::util::handle_abort_connection;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) enum ResponseType {
@@ -104,21 +103,6 @@ impl Context {
         self.parse_uri(uri.to_string(), Some(path_info));
       }
     }
-  }
-
-  #[must_use = "losing the pointer will leak memory"]
-  pub(crate) fn into_raw(self) -> *mut Context {
-    Box::into_raw(Box::new(self))
-  }
-
-  #[must_use = "call `drop(Context::from_raw(ptr))` if you intend to drop the `Context`"]
-  pub(crate) unsafe fn from_raw(ptr: *mut c_void) -> Box<Self> {
-    unsafe { Box::from_raw(ptr.cast()) }
-  }
-
-  pub(crate) fn from_server_context<'a>(server_context: *mut c_void) -> &'a mut Context {
-    let context = server_context.cast();
-    unsafe { &mut *context }
   }
 
   pub(crate) fn root(&self) -> &Path {
@@ -232,13 +216,15 @@ impl Context {
 
     false
   }
+}
 
-  pub(crate) fn is_request_finished(&self) -> bool {
+impl ServerContext for Context {
+  fn is_request_finished(&self) -> bool {
     self.request_finished
   }
 
   #[instrument(skip(self))]
-  pub(crate) fn finish_request(&mut self) -> bool {
+  fn finish_request(&mut self) -> bool {
     if self.request_finished {
       return false;
     }
@@ -319,7 +305,7 @@ impl ContextSender {
         headers.status = status;
       }
       if head_tx.send(headers).is_err() {
-        handle_abort_connection();
+        pasir_sapi::util::handle_abort_connection();
         return false;
       }
     }
@@ -343,6 +329,7 @@ mod tests {
   use hyper::Version;
   use hyper::header::CONTENT_LENGTH;
   use hyper::header::CONTENT_TYPE;
+  use pasir_sapi::context::ServerContext;
   use rstest::rstest;
 
   use crate::sapi::context::Context;

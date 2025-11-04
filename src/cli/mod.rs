@@ -67,7 +67,7 @@ impl Cli {
   }
 
   fn shutdown(sapi: Sapi) {
-    sapi.shutdown();
+    sapi.sapi_shutdown();
     unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
   }
 }
@@ -92,7 +92,7 @@ impl Executable for Cli {
     };
 
     let sapi = Sapi::new(self.info, ini_entries);
-    if sapi.startup().is_err() {
+    if sapi.sapi_startup().is_err() {
       anyhow::bail!("Failed to start PHP SAPI module");
     };
 

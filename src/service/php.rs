@@ -18,6 +18,7 @@ use hyper::Request;
 use hyper::Response;
 use hyper::body::Body;
 use pasir::error::PhpError;
+use pasir_sapi::context::ServerContext;
 use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 use tower::Service;
 use tracing::error;
@@ -162,7 +163,7 @@ mod tests {
   async fn test_php_service() {
     let sapi = Sapi::new(false, None);
     unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
-    assert!(sapi.startup().is_ok());
+    assert!(sapi.sapi_startup().is_ok());
 
     let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
     let stream = Stream::default();

@@ -1,7 +1,6 @@
+use pasir_sapi::ext::SapiBuilderExt;
 pub(crate) mod context;
 mod ext;
-mod util;
-mod variables;
 
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -10,7 +9,6 @@ use std::ffi::c_int;
 use std::ffi::c_void;
 use std::ops::Sub;
 use std::str::FromStr;
-use std::time::SystemTime;
 
 use bytes::Bytes;
 use bytes::BytesMut;
@@ -26,21 +24,17 @@ use headers::Host;
 use hyper::Uri;
 use hyper::header::HeaderName;
 use hyper::header::HeaderValue;
-use pasir_sys::ZEND_RESULT_CODE;
+use pasir_sapi::context::ServerContext;
+use pasir_sapi::util::*;
+use pasir_sapi::variables::*;
 use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
-use tracing::instrument;
-use tracing::trace;
 use tracing::warn;
 
-use crate::free_raw_cstring;
-use crate::free_raw_cstring_mut;
 use crate::sapi::context::Context;
-use crate::sapi::util::*;
-use crate::sapi::variables::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Sapi(pub(crate) *mut SapiModule);
@@ -51,17 +45,12 @@ unsafe impl Sync for Sapi {}
 impl Sapi {
   pub(crate) fn new(php_info_as_text: bool, ini_entries: Option<String>) -> Self {
     let mut builder = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
-      .startup_function(startup)
-      .shutdown_function(shutdown)
-      .deactivate_function(deactivate)
       .ub_write_function(ub_write)
       .flush_function(flush)
       .send_header_function(send_header)
       .read_post_function(read_post)
       .read_cookies_function(read_cookies)
-      .register_server_variables_function(register_server_variables)
-      .log_message_function(log_message)
-      .get_request_time_function(get_request_time);
+      .register_server_variables_function(register_server_variables);
 
     if let Some(entries) = ini_entries {
       builder = builder.ini_entries(entries);
@@ -75,14 +64,13 @@ impl Sapi {
 
     let functions = vec![function_entry, function_alias, FunctionEntry::end()];
 
-    let mut sapi_module = builder.build().unwrap();
-    sapi_module.sapi_error = Some(pasir_sys::zend_error);
+    let mut sapi_module = builder.build_sapi_module::<Self>().unwrap();
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.additional_functions = Box::into_raw(functions.into_boxed_slice()).cast();
     Self(sapi_module.into_raw())
   }
 
-  pub(crate) fn startup(&self) -> Result<(), ()> {
+  pub(crate) fn sapi_startup(&self) -> Result<(), ()> {
     let sapi_module_ptr = self.0;
     let sapi_module = unsafe { *sapi_module_ptr };
 
@@ -103,7 +91,7 @@ impl Sapi {
     }
   }
 
-  pub(crate) fn shutdown(&self) {
+  pub(crate) fn sapi_shutdown(&self) {
     if let Some(shutdown) = unsafe { *self.0 }.shutdown {
       unsafe { shutdown(self.0) };
     }
@@ -138,41 +126,21 @@ impl Drop for Sapi {
   }
 }
 
-extern "C" fn startup(sapi: *mut SapiModule) -> ZEND_RESULT_CODE {
-  unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) }
-}
+impl pasir_sapi::Sapi for Sapi {
+  type ServerContext<'a> = Context;
 
-extern "C" fn shutdown(_sapi: *mut SapiModule) -> ZEND_RESULT_CODE {
-  unsafe { pasir_sys::php_module_shutdown() };
-  ZEND_RESULT_CODE_SUCCESS
-}
-
-extern "C" fn deactivate() -> ZEND_RESULT_CODE {
-  let sapi_globals = SapiGlobals::get();
-  if !sapi_globals.sapi_started {
-    return ZEND_RESULT_CODE_SUCCESS;
+  extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
+    unsafe {
+      let error_message = CStr::from_ptr(message).to_string_lossy();
+      match syslog_type_int {
+        0..=3 => error!("{error_message}"),
+        4 => warn!("{error_message}"),
+        5 | 6 => info!("{error_message}"),
+        7 => debug!("{error_message}"),
+        _ => (),
+      };
+    }
   }
-
-  if sapi_globals.server_context.is_null() {
-    return ZEND_RESULT_CODE_SUCCESS;
-  }
-
-  let mut request_info = sapi_globals.request_info;
-  free_raw_cstring!(request_info, request_method);
-  free_raw_cstring_mut!(request_info, query_string);
-  free_raw_cstring_mut!(request_info, request_uri);
-  free_raw_cstring!(request_info, content_type);
-  free_raw_cstring_mut!(request_info, cookie_data);
-
-  let mut context = unsafe { Context::from_raw(sapi_globals.server_context) };
-  drop(sapi_globals);
-  if !context.is_request_finished() && !context.finish_request() {
-    trace!("finish request failed");
-    handle_abort_connection();
-  }
-  SapiGlobals::get_mut().server_context = std::ptr::null_mut();
-
-  ZEND_RESULT_CODE_SUCCESS
 }
 
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
@@ -205,7 +173,7 @@ extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
   match context.ub_write(Bytes::from(BytesMut::from(char))) {
     true => str_length,
     false => {
-      handle_abort_connection();
+      pasir_sapi::util::handle_abort_connection();
       0
     }
   }
@@ -268,16 +236,18 @@ extern "C" fn read_cookies() -> *mut c_char {
 }
 
 extern "C" fn register_server_variables(vars: *mut Zval) {
-  register_variable(
-    SERVER_SOFTWARE,
-    format!(
-      "{}/{} ({})",
-      env!("CARGO_PKG_NAME"),
-      env!("CARGO_PKG_VERSION"),
-      env!("CARGO_PKG_DESCRIPTION"),
-    ),
-    vars,
-  );
+  unsafe {
+    register_variable(
+      SERVER_SOFTWARE,
+      format!(
+        "{}/{} ({})",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_DESCRIPTION"),
+      ),
+      vars,
+    )
+  };
 
   let sapi_globals = SapiGlobals::get();
   let request_info = sapi_globals.request_info();
@@ -315,17 +285,19 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   let path_info = context.path_info();
   let php_self = format!("{}{}", script_name, path_info.unwrap_or_default());
 
-  register_variable(PHP_SELF, php_self, vars);
-  register_variable(SERVER_PROTOCOL, format!("{:?}", context.version()), vars);
-  register_variable(DOCUMENT_ROOT, root, vars);
-  register_variable(REMOTE_ADDR, context.peer_addr().ip().to_string(), vars);
-  register_variable(REMOTE_PORT, context.peer_addr().port().to_string(), vars);
-  register_variable(SCRIPT_FILENAME, format!("{root}{script_name}"), vars);
-  register_variable(SERVER_ADDR, context.local_addr().ip().to_string(), vars);
-  register_variable(SERVER_PORT, context.local_addr().port().to_string(), vars);
-  register_variable(SCRIPT_NAME, script_name, vars);
-  if let Some(path_info) = path_info {
-    register_variable(PATH_INFO, path_info, vars);
+  unsafe {
+    register_variable(PHP_SELF, php_self, vars);
+    register_variable(SERVER_PROTOCOL, format!("{:?}", context.version()), vars);
+    register_variable(DOCUMENT_ROOT, root, vars);
+    register_variable(REMOTE_ADDR, context.peer_addr().ip().to_string(), vars);
+    register_variable(REMOTE_PORT, context.peer_addr().port().to_string(), vars);
+    register_variable(SCRIPT_FILENAME, format!("{root}{script_name}"), vars);
+    register_variable(SERVER_ADDR, context.local_addr().ip().to_string(), vars);
+    register_variable(SERVER_PORT, context.local_addr().port().to_string(), vars);
+    register_variable(SCRIPT_NAME, script_name, vars);
+    if let Some(path_info) = path_info {
+      register_variable(PATH_INFO, path_info, vars);
+    }
   }
 
   let headers = context.headers();
@@ -334,39 +306,18 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
     None => Uri::from_maybe_shared(""),
     Some(host) => Uri::from_str(host.hostname()),
   } {
-    register_variable(SERVER_NAME, uri.host().unwrap(), vars);
+    unsafe { register_variable(SERVER_NAME, uri.host().unwrap(), vars) };
   }
 
   for (name, value) in headers.iter() {
     let header_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
-    register_variable(CString::new(header_name).unwrap().as_c_str(), value.to_str().unwrap(), vars);
-  }
-}
-
-extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {
-  unsafe {
-    let error_message = CStr::from_ptr(message).to_string_lossy();
-    match syslog_type_int {
-      0..=3 => error!("{error_message}"),
-      4 => warn!("{error_message}"),
-      5 | 6 => info!("{error_message}"),
-      7 => debug!("{error_message}"),
-      _ => (),
+    unsafe {
+      register_variable(
+        CString::new(header_name).unwrap().as_c_str(),
+        value.to_str().unwrap(),
+        vars,
+      )
     };
-  }
-}
-
-#[instrument(skip(time))]
-extern "C" fn get_request_time(time: *mut f64) -> c_int {
-  match SystemTime::UNIX_EPOCH.elapsed() {
-    Ok(timestamp) => {
-      unsafe { time.write(timestamp.as_secs_f64()) };
-      ZEND_RESULT_CODE_SUCCESS
-    }
-    Err(e) => {
-      error!("{e}");
-      ZEND_RESULT_CODE_FAILURE
-    }
   }
 }
 
@@ -382,7 +333,6 @@ pub(crate) mod tests {
   use std::path::PathBuf;
 
   use hyper::Request;
-  use rstest::rstest;
 
   use super::*;
   use crate::sapi::context::ContextBuilder;
@@ -487,35 +437,6 @@ pub(crate) mod tests {
   }
 
   #[test]
-  fn test_sapi_startup_shutdown() {
-    let sapi = TestSapi::new();
-
-    assert_eq!(ZEND_RESULT_CODE_SUCCESS, startup(sapi.0));
-    assert_eq!(ZEND_RESULT_CODE_SUCCESS, shutdown(sapi.0))
-  }
-
-  #[rstest]
-  #[case(false)]
-  #[case::aborted(true)]
-  fn test_deactivate(#[case] aborted: bool) {
-    let _sapi = TestSapi::new();
-
-    let (head_rx, _, context_sender) = ContextSender::receiver();
-    let context = ContextBuilder::default().sender(context_sender).build();
-    let mut sapi_globals = SapiGlobals::get_mut();
-    sapi_globals.server_context = context.into_raw().cast();
-    sapi_globals.sapi_started = true;
-    drop(sapi_globals);
-
-    unsafe { pasir_sys::php_output_startup() };
-    if aborted {
-      drop(head_rx);
-    }
-    assert_eq!(deactivate(), ZEND_RESULT_CODE_SUCCESS);
-    assert!(SapiGlobals::get().server_context.is_null());
-  }
-
-  #[test]
   fn test_ub_write() {
     assert_eq!(ub_write(std::ptr::null_mut(), 0), 0);
 
@@ -606,9 +527,9 @@ pub(crate) mod tests {
 
   #[test]
   fn test_register_server_variables() -> anyhow::Result<()> {
-    let _sapi = TestSapi::new();
+    let sapi = TestSapi::new();
     assert_eq!(
-      unsafe { pasir_sys::php_module_startup(_sapi.0, std::ptr::null_mut()) },
+      unsafe { pasir_sys::php_module_startup(sapi.0, std::ptr::null_mut()) },
       ZEND_RESULT_CODE_SUCCESS
     );
     assert_eq!(unsafe { pasir_sys::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
@@ -661,18 +582,5 @@ pub(crate) mod tests {
 
     let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
     Ok(())
-  }
-
-  /// Test get_request_time callback
-  /// This tests the request time functionality which is safe to call
-  #[test]
-  fn test_get_request_time() {
-    let mut time: f64 = 0.0;
-    let timestamp = SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs();
-    let result = get_request_time(&mut time);
-
-    // Should return success code
-    assert_eq!(result, ZEND_RESULT_CODE_SUCCESS, "get_request_time should return success");
-    unsafe { assert_eq!(time.to_int_unchecked::<u64>(), timestamp) }
   }
 }
