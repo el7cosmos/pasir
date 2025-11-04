@@ -8,9 +8,9 @@ use clap_verbosity_flag::InfoLevel;
 use clap_verbosity_flag::Verbosity;
 use ext_php_rs::zend::ExecutorGlobals;
 use pasir::error::PhpError;
-use pasir::ffi::PHP_VERSION;
-use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
-use pasir::ffi::ZEND_RESULT_CODE_SUCCESS;
+use pasir_sys::PHP_VERSION;
+use pasir_sys::ZEND_RESULT_CODE_FAILURE;
+use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 #[cfg(php83)]
 use tokio::runtime::Handle;
 
@@ -23,7 +23,7 @@ pub trait Executable {
   async fn execute(self) -> anyhow::Result<()>;
 
   fn request_startup() -> anyhow::Result<()> {
-    if unsafe { pasir::ffi::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
+    if unsafe { pasir_sys::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
       return Err(anyhow::anyhow!(PhpError::RequestStartupFailed));
     }
 
@@ -32,8 +32,8 @@ pub trait Executable {
 
   fn request_shutdown() {
     ExecutorGlobals::get_mut().exit_status = ZEND_RESULT_CODE_SUCCESS;
-    unsafe { pasir::ffi::php_output_end_all() };
-    unsafe { pasir::ffi::php_request_shutdown(std::ptr::null_mut()) };
+    unsafe { pasir_sys::php_output_end_all() };
+    unsafe { pasir_sys::php_request_shutdown(std::ptr::null_mut()) };
   }
 }
 
@@ -81,7 +81,7 @@ impl Executable for Cli {
     #[cfg(php83)]
     {
       let expected_threads = Handle::current().metrics().num_workers().cast_signed();
-      if !unsafe { pasir::ffi::php_tsrm_startup_ex(expected_threads.try_into()?) } {
+      if !unsafe { pasir_sys::php_tsrm_startup_ex(expected_threads.try_into()?) } {
         anyhow::bail!("Failed to start PHP TSRM");
       }
     }

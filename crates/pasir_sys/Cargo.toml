@@ -1,0 +1,54 @@
+[package]
+name = "pasir_sys"
+version = "0.1.0"
+edition.workspace = true
+description = "Pasir's binding for Zend and PHP API"
+repository.workspace = true
+license.workspace = true
+keywords = ["php", "sapi"]
+categories = ["external-ffi-bindings"]
+
+[dependencies]
+ext-php-rs.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
+bindgen = { version = "0.72.1", default-features = false }
+cargo-manifest = "0.19.1"
+pasir_build = { version = "0.1.0", path = "../pasir_build" }
+
+[features]
+default = ["runtime"]
+runtime = ["ext-php-rs/runtime"]
+static = ["ext-php-rs/static"]
+
+[package.metadata]
+allowlist_item = [
+    "PHP_INFO_ALL",
+    "PHP_INFO_CREDITS",
+    "PHP_VERSION",
+    "module_registry",
+    "php_handle_aborted_connection",
+    "php_handle_auth_data",
+    "php_output_end_all",
+    "php_output_startup",
+    "php_print_info",
+    "php_register_variable",
+    "php_tsrm_startup_ex",
+    "zend_error",
+    "zend_extension",
+    "zend_extensions",
+    "zend_shutdown_strtod",
+    "zend_update_current_locale"
+]
+blocklist_Item = [
+    "HashTable",
+    "_zend_array",
+    "_zend_llist",
+    "_zend_llist_element",
+    "_zval_struct",
+    "zend_array",
+    "zend_llist",
+    "zend_llist_element",
+    "zval",
+]

@@ -182,7 +182,7 @@ impl Context {
 
     if let Some(auth) = headers.get("Authorization") {
       unsafe {
-        pasir::ffi::php_handle_auth_data(CString::new(auth.as_bytes())?.as_ptr());
+        pasir_sys::php_handle_auth_data(CString::new(auth.as_bytes())?.as_ptr());
       }
     }
 
@@ -243,7 +243,7 @@ impl Context {
       return false;
     }
 
-    unsafe { pasir::ffi::php_output_end_all() }
+    unsafe { pasir_sys::php_output_end_all() }
 
     if let Some(body_tx) = self.sender.body.take() {
       body_tx.abort();
@@ -415,7 +415,7 @@ mod tests {
     let context = ContextBuilder::default().sender(context_sender).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
-    unsafe { pasir::ffi::php_output_startup() };
+    unsafe { pasir_sys::php_output_startup() };
     let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
 
     // assert that `flush` is true if the request not finished yet.

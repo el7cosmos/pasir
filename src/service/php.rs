@@ -18,7 +18,7 @@ use hyper::Request;
 use hyper::Response;
 use hyper::body::Body;
 use pasir::error::PhpError;
-use pasir::ffi::ZEND_RESULT_CODE_FAILURE;
+use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 use tower::Service;
 use tracing::error;
 use tracing::instrument;
@@ -65,7 +65,7 @@ where
 
       tokio::task::spawn_blocking(move || {
         unsafe { ext_php_rs::embed::ext_php_rs_sapi_per_thread_init() }
-        unsafe { pasir::ffi::zend_update_current_locale() }
+        unsafe { pasir_sys::zend_update_current_locale() }
 
         let request = Request::from_parts(head, bytes);
         let context = Context::new(root, stream, request, context_tx);
@@ -110,7 +110,7 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
   let context_raw = context.into_raw();
   SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
 
-  if unsafe { pasir::ffi::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
+  if unsafe { pasir_sys::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
     return Err(PhpError::RequestStartupFailed);
   }
 
@@ -134,9 +134,9 @@ fn execute_php(context: Context) -> Result<(), PhpError> {
 fn request_shutdown() {
   #[cfg(php84)]
   unsafe {
-    pasir::ffi::zend_shutdown_strtod()
+    pasir_sys::zend_shutdown_strtod()
   };
-  unsafe { pasir::ffi::php_request_shutdown(std::ptr::null_mut()) };
+  unsafe { pasir_sys::php_request_shutdown(std::ptr::null_mut()) };
 
   let mut request_info = SapiGlobals::get().request_info;
   free_raw_cstring_mut!(request_info, path_translated);

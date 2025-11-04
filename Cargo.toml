@@ -12,6 +12,7 @@ build = "build/mod.rs"
 [workspace]
 members = [
     "crates/pasir_build",
+    "crates/pasir_sys",
 ]
 
 [workspace.package]
@@ -21,19 +22,21 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+ext-php-rs = { version = "0.15.1", default-features = false }
 
 [dependencies]
 anyhow.workspace = true
 bytes = "1.10.1"
 clap = { version = "4.5.50", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
 clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
-ext-php-rs = { version = "0.15.1", default-features = false, features = ["embed"] }
+ext-php-rs = { workspace = true, features = ["embed"] }
 futures-util = { version = "0.3.31", default-features = false }
 headers = "0.4.1"
 http-body-util = "0.1.3"
 hyper = { version = "1.7.0", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1.17", features = ["server-auto", "service", "tokio", "server-graceful"] }
 nu-ansi-term = "0.50.3"
+pasir_sys = { version = "0.1.0", path = "crates/pasir_sys", default-features = false }
 regex = "1.12.2"
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
@@ -51,47 +54,14 @@ proptest = "1.9.0"
 rstest = { version = "0.26.1", default-features = false }
 
 [build-dependencies]
-anyhow = "1.0.100"
-bindgen = { version = "0.72.1", default-features = false }
-cargo-manifest = "0.19.1"
+anyhow.workspace = true
 pasir_build = { version = "0.1.0", path = "crates/pasir_build" }
 serde_json = "1.0.145"
 
 [features]
-default = ["ext-php-rs/runtime"]
-clang_static = ["ext-php-rs/static"]
+default = ["ext-php-rs/runtime", "pasir_sys/runtime"]
+clang_static = ["ext-php-rs/static", "pasir_sys/static"]
 static = []
 
 [profile.dev]
 debug = true
-
-[package.metadata]
-allowlist_item = [
-    "PHP_INFO_ALL",
-    "PHP_INFO_CREDITS",
-    "PHP_VERSION",
-    "module_registry",
-    "php_handle_aborted_connection",
-    "php_handle_auth_data",
-    "php_output_end_all",
-    "php_output_startup",
-    "php_print_info",
-    "php_register_variable",
-    "php_tsrm_startup_ex",
-    "zend_error",
-    "zend_extension",
-    "zend_extensions",
-    "zend_shutdown_strtod",
-    "zend_update_current_locale"
-]
-blocklist_Item = [
-    "HashTable",
-    "_zend_array",
-    "_zend_llist",
-    "_zend_llist_element",
-    "_zval_struct",
-    "zend_array",
-    "zend_llist",
-    "zend_llist_element",
-    "zval",
-]
