@@ -18,3 +18,27 @@ pub fn find_executable(name: &str, env_name: &str) -> anyhow::Result<PathBuf> {
     )
   })
 }
+
+#[cfg(test)]
+mod test {
+  use std::path::PathBuf;
+
+  use crate::find_executable;
+
+  #[test]
+  fn test_find_executable_no_env() {
+    assert!(find_executable("foo", "FOO").is_err());
+  }
+
+  #[test]
+  fn test_find_executable_not_exist() {
+    unsafe { std::env::set_var("FOO", PathBuf::from("/foo")) };
+    assert!(find_executable("foo", "FOO").is_err());
+  }
+
+  #[test]
+  fn test_find_executable() {
+    unsafe { std::env::set_var("FOO", PathBuf::from("tests/fixtures/foo")) };
+    assert_eq!(find_executable("foo", "FOO").unwrap().as_path(), "tests/fixtures/foo");
+  }
+}

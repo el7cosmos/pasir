@@ -25,11 +25,11 @@ pub trait ServerContext: Sized {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
   use crate::context::ServerContext;
 
   #[derive(Default)]
-  pub struct TestServerContext {
+  pub(crate) struct TestServerContext {
     pub(crate) finish_request: bool,
   }
 
