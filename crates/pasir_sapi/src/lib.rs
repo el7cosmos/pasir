@@ -18,6 +18,7 @@ pub mod variables;
 pub trait Sapi {
   type ServerContext<'a>: ServerContext;
 
+  #[doc(hidden)]
   unsafe extern "C" fn startup(sapi: *mut SapiModule) -> ZEND_RESULT_CODE {
     unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) }
   }
@@ -57,6 +58,7 @@ pub trait Sapi {
 
   extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int);
 
+  #[doc(hidden)]
   unsafe extern "C" fn get_request_time(time: *mut f64) -> ZEND_RESULT_CODE {
     let timestamp = SystemTime::UNIX_EPOCH.elapsed().expect("system time is before Unix epoch");
     unsafe { time.write(timestamp.as_secs_f64()) };
