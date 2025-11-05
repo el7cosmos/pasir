@@ -37,8 +37,10 @@ mod test {
   }
 
   #[test]
-  fn test_find_executable() {
-    unsafe { std::env::set_var("FOO", PathBuf::from("tests/fixtures/foo")) };
-    assert_eq!(find_executable("foo", "FOO").unwrap().as_path(), "tests/fixtures/foo");
+  fn test_find_executable() -> anyhow::Result<()> {
+    let path = PathBuf::from("tests/fixtures/foo");
+    unsafe { std::env::set_var("FOO", path.as_path()) };
+    assert_eq!(find_executable("foo", "FOO")?.as_path(), path.as_path());
+    Ok(())
   }
 }
