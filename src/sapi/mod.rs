@@ -331,8 +331,18 @@ pub(crate) mod tests {
   use std::collections::HashMap;
   use std::net::Ipv4Addr;
   use std::path::PathBuf;
+  use std::sync::Arc;
+  use std::sync::Mutex;
 
   use hyper::Request;
+  use pasir_sapi::Sapi as PasirSapi;
+  use tracing::Event;
+  use tracing::Level;
+  use tracing::Subscriber;
+  use tracing::field::Field;
+  use tracing::field::Visit;
+  use tracing_subscriber::Layer;
+  use tracing_subscriber::layer::SubscriberExt;
 
   use super::*;
   use crate::sapi::context::ContextBuilder;
@@ -582,5 +592,77 @@ pub(crate) mod tests {
 
     let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
     Ok(())
+  }
+
+  #[test]
+  fn test_log_message() {
+    #[derive(Clone, Default)]
+    struct TestLayer {
+      events: Arc<Mutex<Vec<Level>>>,
+    }
+
+    impl<S: Subscriber> Layer<S> for TestLayer {
+      fn on_event(&self, event: &Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        let mut visitor = TestVisitor::default();
+        event.record(&mut visitor);
+
+        self.events.lock().unwrap().push(*event.metadata().level());
+      }
+    }
+
+    #[derive(Default)]
+    struct TestVisitor {}
+
+    impl Visit for TestVisitor {
+      fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
+    }
+
+    let test_layer = TestLayer::default();
+    let events = test_layer.events.clone();
+
+    let subscriber = tracing_subscriber::registry().with(test_layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+      let message = CString::default();
+
+      // Test error level (0-3)
+      for level in 0..=3 {
+        Sapi::log_message(message.as_ptr(), level);
+      }
+
+      // Test warn level (4)
+      Sapi::log_message(message.as_ptr(), 4);
+
+      // Test info level (5-6)
+      Sapi::log_message(message.as_ptr(), 5);
+      Sapi::log_message(message.as_ptr(), 6);
+
+      // Test debug level (7)
+      Sapi::log_message(message.as_ptr(), 7);
+
+      // Test ignored level (8)
+      Sapi::log_message(message.as_ptr(), 8);
+    });
+
+    let captured_events = events.lock().unwrap();
+
+    // Verify error! macro was called for 0-3
+    assert_eq!(captured_events[0], Level::ERROR);
+    assert_eq!(captured_events[1], Level::ERROR);
+    assert_eq!(captured_events[2], Level::ERROR);
+    assert_eq!(captured_events[3], Level::ERROR);
+
+    // Verify warn! macro was called for 4
+    assert_eq!(captured_events[4], Level::WARN);
+
+    // Verify info! macro was called for 5-6
+    assert_eq!(captured_events[5], Level::INFO);
+    assert_eq!(captured_events[6], Level::INFO);
+
+    // Verify debug! macro was called for 7
+    assert_eq!(captured_events[7], Level::DEBUG);
+
+    // Verify nothing was logged for 8
+    assert_eq!(captured_events.len(), 8);
   }
 }
