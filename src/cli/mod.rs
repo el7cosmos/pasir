@@ -8,6 +8,7 @@ use clap_verbosity_flag::InfoLevel;
 use clap_verbosity_flag::Verbosity;
 use ext_php_rs::zend::ExecutorGlobals;
 use pasir::error::PhpError;
+use pasir_sapi::Sapi as PasirSapi;
 use pasir_sys::PHP_VERSION;
 use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
@@ -92,7 +93,7 @@ impl Executable for Cli {
     };
 
     let sapi = Sapi::new(self.info, ini_entries);
-    if sapi.sapi_startup().is_err() {
+    if sapi.sapi_startup() == ZEND_RESULT_CODE_FAILURE {
       anyhow::bail!("Failed to start PHP SAPI module");
     };
 

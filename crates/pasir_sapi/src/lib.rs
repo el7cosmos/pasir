@@ -7,6 +7,7 @@ use ext_php_rs::zend::SapiGlobals;
 use ext_php_rs::zend::SapiModule;
 use libc::LOG_DEBUG;
 use pasir_sys::ZEND_RESULT_CODE;
+use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 
 use crate::context::ServerContext;
@@ -84,6 +85,37 @@ pub trait Sapi {
     unsafe { time.write(timestamp.as_secs_f64()) };
     ZEND_RESULT_CODE_SUCCESS
   }
+
+  fn sapi_startup(&self) -> ZEND_RESULT_CODE
+  where
+    for<'a> &'a Self: Into<*mut SapiModule>,
+  {
+    let sapi_module = self.into();
+    unsafe {
+      let ini_entries = (*sapi_module).ini_entries;
+      pasir_sys::sapi_startup(sapi_module);
+      (*sapi_module).ini_entries = ini_entries;
+
+      if let Some(startup) = (*sapi_module).startup {
+        return startup(sapi_module);
+      }
+    }
+
+    ZEND_RESULT_CODE_FAILURE
+  }
+
+  fn sapi_shutdown(&self)
+  where
+    for<'a> &'a Self: Into<*mut SapiModule>,
+  {
+    let sapi_module = self.into();
+    unsafe {
+      if let Some(shutdown) = (*sapi_module).shutdown {
+        shutdown(sapi_module);
+      }
+      pasir_sys::sapi_shutdown();
+    }
+  }
 }
 
 #[cfg(test)]
@@ -97,6 +129,7 @@ pub(crate) mod tests {
   use ext_php_rs::builders::SapiBuilder;
   use ext_php_rs::zend::SapiGlobals;
   use ext_php_rs::zend::SapiModule;
+  use pasir_sys::ZEND_RESULT_CODE_FAILURE;
   use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
   use rstest::rstest;
 
@@ -132,12 +165,21 @@ pub(crate) mod tests {
     extern "C" fn log_message(_message: *const c_char, _syslog_type_int: c_int) {}
   }
 
+  impl From<&TestSapi> for *mut SapiModule {
+    fn from(value: &TestSapi) -> Self {
+      value.0
+    }
+  }
+
   #[test]
   fn test_sapi_startup_shutdown() {
     let sapi = TestSapi::new();
 
     assert_eq!(unsafe { TestSapi::startup(sapi.0) }, ZEND_RESULT_CODE_SUCCESS);
-    assert_eq!(TestSapi::shutdown(sapi.0), ZEND_RESULT_CODE_SUCCESS)
+    assert_eq!(TestSapi::shutdown(sapi.0), ZEND_RESULT_CODE_SUCCESS);
+
+    unsafe { (*sapi.0).startup = None };
+    assert_eq!(sapi.sapi_startup(), ZEND_RESULT_CODE_FAILURE);
   }
 
   #[rstest]

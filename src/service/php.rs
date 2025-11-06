@@ -153,6 +153,8 @@ mod tests {
   use hyper::Request;
   use hyper::StatusCode;
   use hyper::body::Body;
+  use pasir_sapi::Sapi as PasirSapi;
+  use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
   use tower::Service;
 
   use crate::cli::serve::Stream;
@@ -163,7 +165,7 @@ mod tests {
   async fn test_php_service() {
     let sapi = Sapi::new(false, None);
     unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
-    assert!(sapi.sapi_startup().is_ok());
+    assert_eq!(sapi.sapi_startup(), ZEND_RESULT_CODE_SUCCESS);
 
     let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
     let stream = Stream::default();

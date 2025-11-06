@@ -26,8 +26,6 @@ use hyper::header::HeaderValue;
 use pasir_sapi::context::ServerContext;
 use pasir_sapi::util::*;
 use pasir_sapi::variables::*;
-use pasir_sys::ZEND_RESULT_CODE_FAILURE;
-use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -66,34 +64,6 @@ impl Sapi {
     sapi_module.phpinfo_as_text = php_info_as_text as c_int;
     sapi_module.additional_functions = Box::into_raw(functions.into_boxed_slice()).cast();
     Self(sapi_module.into_raw())
-  }
-
-  pub(crate) fn sapi_startup(&self) -> Result<(), ()> {
-    let sapi_module_ptr = self.0;
-    let sapi_module = unsafe { *sapi_module_ptr };
-
-    let ini_entries = match sapi_module.ini_entries.is_null() {
-      true => None,
-      false => Some(sapi_module.ini_entries),
-    };
-    unsafe { pasir_sys::sapi_startup(sapi_module_ptr) };
-    if let Some(entries) = ini_entries {
-      unsafe { (*sapi_module_ptr).ini_entries = entries }
-    }
-
-    let startup = sapi_module.startup.expect("startup function is null");
-    match unsafe { startup(sapi_module_ptr) } {
-      ZEND_RESULT_CODE_SUCCESS => Ok(()),
-      ZEND_RESULT_CODE_FAILURE => Err(()),
-      _ => Err(()),
-    }
-  }
-
-  pub(crate) fn sapi_shutdown(&self) {
-    if let Some(shutdown) = unsafe { *self.0 }.shutdown {
-      unsafe { shutdown(self.0) };
-    }
-    unsafe { pasir_sys::sapi_shutdown() }
   }
 }
 
@@ -141,6 +111,11 @@ impl pasir_sapi::Sapi for Sapi {
   }
 }
 
+impl From<&Sapi> for *mut SapiModule {
+  fn from(value: &Sapi) -> Self {
+    value.0
+  }
+}
 extern "C" fn ub_write(str: *const c_char, str_length: usize) -> usize {
   if str.is_null() || str_length == 0 {
     return 0;
@@ -312,6 +287,7 @@ pub(crate) mod tests {
 
   use hyper::Request;
   use pasir_sapi::Sapi as PasirSapi;
+  use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
   use tracing::Event;
   use tracing::Level;
   use tracing::Subscriber;
