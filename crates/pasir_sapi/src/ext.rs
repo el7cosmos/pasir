@@ -21,6 +21,9 @@ impl SapiBuilderExt for SapiBuilder {
       sapi_module.deactivate = Some(T::deactivate);
     }
     sapi_module.sapi_error = Some(pasir_sys::zend_error);
+    if sapi_module.read_post.is_none() {
+      sapi_module.read_post = Some(T::read_post);
+    }
     if sapi_module.log_message.is_none() {
       sapi_module.log_message = Some(T::log_message);
     }

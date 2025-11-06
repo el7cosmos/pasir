@@ -7,7 +7,6 @@ use std::ffi::CString;
 use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ffi::c_void;
-use std::ops::Sub;
 use std::str::FromStr;
 
 use bytes::Bytes;
@@ -48,7 +47,6 @@ impl Sapi {
       .ub_write_function(ub_write)
       .flush_function(flush)
       .send_header_function(send_header)
-      .read_post_function(read_post)
       .read_cookies_function(read_cookies)
       .register_server_variables_function(register_server_variables);
 
@@ -203,28 +201,6 @@ extern "C" fn send_header(header: *mut SapiHeader, server_context: *mut c_void) 
       );
     }
   }
-}
-
-extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
-  let sapi_globals = SapiGlobals::get();
-
-  let content_length = sapi_globals.request_info().content_length();
-  if content_length == 0 {
-    return 0;
-  }
-
-  // If we've read everything, return 0
-  if sapi_globals.read_post_bytes >= content_length {
-    return 0;
-  }
-
-  // Calculate how much we can read
-  let to_read = length.min(content_length.sub(sapi_globals.read_post_bytes) as usize);
-
-  let context = Context::from_server_context(sapi_globals.server_context);
-  let bytes = context.body_mut().split_to(to_read);
-  unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, bytes.len()) };
-  bytes.len()
 }
 
 extern "C" fn read_cookies() -> *mut c_char {
@@ -486,41 +462,6 @@ pub(crate) mod tests {
 
     let head = head_rx.await.unwrap();
     assert_eq!(head.headers.get("Foo"), Some(&HeaderValue::from_static("Bar")));
-  }
-
-  #[test]
-  fn test_read_post() {
-    let _sapi = TestSapi::new();
-
-    let buffer = CString::default();
-    let buffer_raw = buffer.into_raw();
-    assert_eq!(read_post(buffer_raw, 0), 0);
-
-    let request = Request::new(Bytes::from_static(b"Foo"));
-    let context = ContextBuilder::default().request(request).build();
-    SapiGlobals::get_mut().server_context = context.into_raw().cast();
-    SapiGlobals::get_mut().request_info.content_length = 3;
-
-    assert_eq!(read_post(buffer_raw, 1), 1);
-    SapiGlobals::get_mut().read_post_bytes = 1;
-    let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.as_c_str(), c"F");
-
-    let buffer = CString::default();
-    let buffer_raw = buffer.into_raw();
-    assert_eq!(read_post(buffer_raw, 3), 2);
-    SapiGlobals::get_mut().read_post_bytes = 3;
-    let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.as_c_str(), c"oo");
-
-    let buffer = CString::default();
-    let buffer_raw = buffer.into_raw();
-    assert_eq!(read_post(buffer_raw, 3), 0);
-
-    let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.as_c_str(), c"");
-
-    let _context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
   }
 
   #[test]

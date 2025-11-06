@@ -1,5 +1,6 @@
 use std::ffi::c_char;
 use std::ffi::c_int;
+use std::ops::Sub;
 use std::time::SystemTime;
 
 use ext_php_rs::zend::SapiGlobals;
@@ -56,6 +57,25 @@ pub trait Sapi {
     ZEND_RESULT_CODE_SUCCESS
   }
 
+  extern "C" fn read_post(buffer: *mut c_char, length: usize) -> usize {
+    let sapi_globals = SapiGlobals::get();
+
+    let content_length = sapi_globals.request_info().content_length();
+    if content_length == 0 {
+      return 0;
+    }
+
+    // If we've read everything, return 0
+    if sapi_globals.read_post_bytes >= content_length {
+      return 0;
+    }
+
+    // Calculate how much we can read
+    let to_read = length.min(content_length.sub(sapi_globals.read_post_bytes) as usize);
+
+    Self::ServerContext::from_server_context(sapi_globals.server_context).read_post(buffer, to_read)
+  }
+
   extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int);
 
   #[doc(hidden)]
@@ -68,6 +88,7 @@ pub trait Sapi {
 
 #[cfg(test)]
 pub(crate) mod tests {
+  use std::ffi::CString;
   use std::ffi::c_char;
   use std::ffi::c_int;
   use std::time::SystemTime;
@@ -108,7 +129,7 @@ pub(crate) mod tests {
   impl Sapi for TestSapi {
     type ServerContext<'a> = TestServerContext;
 
-    extern "C" fn log_message(message: *const c_char, syslog_type_int: c_int) {}
+    extern "C" fn log_message(_message: *const c_char, _syslog_type_int: c_int) {}
   }
 
   #[test]
@@ -124,8 +145,7 @@ pub(crate) mod tests {
   #[case::aborted(true)]
   fn test_deactivate(#[case] aborted: bool) {
     let _sapi = TestSapi::new();
-    let mut context = TestServerContext::default();
-    context.finish_request = aborted;
+    let context = TestServerContext { finish_request: aborted };
 
     let mut sapi_globals = SapiGlobals::get_mut();
     sapi_globals.server_context = context.into_raw().cast();
@@ -135,6 +155,25 @@ pub(crate) mod tests {
     unsafe { pasir_sys::php_output_startup() };
     assert_eq!(TestSapi::deactivate(), ZEND_RESULT_CODE_SUCCESS);
     assert!(SapiGlobals::get().server_context.is_null());
+  }
+
+  #[test]
+  fn test_read_post() {
+    let _sapi = TestSapi::new();
+
+    let buffer = CString::default();
+    let buffer_raw = buffer.into_raw();
+    assert_eq!(TestSapi::read_post(buffer_raw, 0), 0);
+
+    let context = TestServerContext::default();
+    SapiGlobals::get_mut().server_context = context.into_raw().cast();
+    SapiGlobals::get_mut().request_info.content_length = 3;
+    assert_eq!(TestSapi::read_post(buffer_raw, 1), 1);
+
+    SapiGlobals::get_mut().read_post_bytes = 3;
+    assert_eq!(TestSapi::read_post(buffer_raw, 3), 0);
+
+    let _ = unsafe { TestServerContext::from_raw(SapiGlobals::get().server_context) };
   }
 
   /// Test get_request_time callback

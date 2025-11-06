@@ -1,3 +1,4 @@
+use std::ffi::c_char;
 use std::ffi::c_void;
 
 pub trait ServerContext: Sized {
@@ -53,6 +54,8 @@ pub trait ServerContext: Sized {
     unsafe { &mut *context }
   }
 
+  fn read_post(&mut self, buffer: *mut c_char, to_read: usize) -> usize;
+
   fn is_request_finished(&self) -> bool;
 
   fn finish_request(&mut self) -> bool;
@@ -60,6 +63,8 @@ pub trait ServerContext: Sized {
 
 #[cfg(test)]
 pub(crate) mod tests {
+  use std::ffi::c_char;
+
   use crate::context::ServerContext;
 
   #[derive(Default)]
@@ -68,6 +73,10 @@ pub(crate) mod tests {
   }
 
   impl ServerContext for TestServerContext {
+    fn read_post(&mut self, _buffer: *mut c_char, to_read: usize) -> usize {
+      to_read
+    }
+
     fn is_request_finished(&self) -> bool {
       false
     }

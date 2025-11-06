@@ -1,5 +1,6 @@
 use std::ffi::CString;
 use std::ffi::NulError;
+use std::ffi::c_char;
 use std::ffi::c_int;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -133,10 +134,6 @@ impl Context {
     self.request.version()
   }
 
-  pub(crate) fn body_mut(&mut self) -> &mut Bytes {
-    self.request.body_mut()
-  }
-
   #[instrument(skip(self), err)]
   pub(crate) fn init_sapi_globals(&self) -> Result<(), NulError> {
     let uri = self.request.uri();
@@ -219,6 +216,16 @@ impl Context {
 }
 
 impl ServerContext for Context {
+  fn read_post(&mut self, buffer: *mut c_char, to_read: usize) -> usize {
+    if to_read > self.request.body_mut().len() {
+      return 0;
+    }
+
+    let bytes = self.request.body_mut().split_to(to_read);
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, bytes.len()) };
+    bytes.len()
+  }
+
   fn is_request_finished(&self) -> bool {
     self.request_finished
   }
@@ -316,6 +323,7 @@ impl ContextSender {
 
 #[cfg(test)]
 mod tests {
+  use std::ffi::CString;
   use std::ffi::c_int;
   use std::path::PathBuf;
   use std::sync::Arc;
@@ -411,5 +419,29 @@ mod tests {
     assert!(context.finish_request());
     // assert that `flush` is false if the request finished already.
     assert!(!context.flush());
+  }
+
+  #[test]
+  fn test_read_post() {
+    let _sapi = TestSapi::new();
+
+    let request = Request::new(Bytes::from_static(b"Foo"));
+    let mut context = ContextBuilder::default().request(request).build();
+
+    let buffer_raw = CString::default().into_raw();
+    assert_eq!(context.read_post(buffer_raw, 1), 1);
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"F");
+
+    let buffer_raw = CString::default().into_raw();
+    assert_eq!(context.read_post(buffer_raw, 2), 2);
+    // SapiGlobals::get_mut().read_post_bytes = 3;
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"oo");
+
+    let buffer_raw = CString::default().into_raw();
+    assert_eq!(context.read_post(buffer_raw, 3), 0);
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"");
   }
 }
