@@ -177,7 +177,11 @@ pub(crate) mod tests {
 
     assert_eq!(unsafe { TestSapi::startup(sapi.0) }, ZEND_RESULT_CODE_SUCCESS);
     assert_eq!(TestSapi::shutdown(sapi.0), ZEND_RESULT_CODE_SUCCESS);
+  }
 
+  #[test]
+  fn test_sapi_startup_failure() {
+    let sapi = TestSapi::new();
     unsafe { (*sapi.0).startup = None };
     assert_eq!(sapi.sapi_startup(), ZEND_RESULT_CODE_FAILURE);
   }
