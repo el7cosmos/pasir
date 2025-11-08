@@ -29,8 +29,7 @@ impl Routes {
       return Ok(Self::default());
     }
 
-    let routes = toml::from_str(&content?)
-      .with_context(|| format!("Failed to parse routes from: {path:?}"))?;
+    let routes = toml::from_str(&content?).with_context(|| format!("Failed to parse routes from: {path:?}"))?;
     info!("Routes loaded from {:?}", path);
 
     Ok(routes)
@@ -199,16 +198,12 @@ where
   let hash_map = map.into_iter().flat_map(|m| m.into_iter()).collect::<HashMap<String, String>>();
   hash_map
     .into_iter()
-    .map(|(key, value)| {
-      Ok((key.parse()?, RegexBuilder::new(&value).case_insensitive(true).build()?))
-    })
+    .map(|(key, value)| Ok((key.parse()?, RegexBuilder::new(&value).case_insensitive(true).build()?)))
     .collect::<anyhow::Result<HashMap<HeaderName, Regex>>>()
     .map_err(serde::de::Error::custom)
 }
 
-fn deserialize_action_headers<'de, D>(
-  deserializer: D,
-) -> Result<ResponseHeaderActionOption, D::Error>
+fn deserialize_action_headers<'de, D>(deserializer: D) -> Result<ResponseHeaderActionOption, D::Error>
 where
   D: Deserializer<'de>,
 {
@@ -271,11 +266,7 @@ mod tests {
   #[rstest]
   #[case("foo$", "/foo", true)]
   #[case("foo$", "/bar", false)]
-  fn test_route_match_request(
-    #[case] match_uri: String,
-    #[case] request_uri: String,
-    #[case] expected: bool,
-  ) {
+  fn test_route_match_request(#[case] match_uri: String, #[case] request_uri: String, #[case] expected: bool) {
     let route = Route {
       route_match: RouteMatch {
         uri: Some(RegexBuilder::new(&match_uri).build().unwrap()),
@@ -293,17 +284,18 @@ mod tests {
   #[case(("Foo", "Bar"), ("Baz", "Bar"), false)]
   #[case(("Foo", "Bar"), ("Foo", "Bar"), true)]
   #[case(("Foo", "Bar"), ("foo", "Bar, Baz"), true)]
-  fn test_route_match_response(
-    #[case] match_header: (&str, &str),
-    #[case] response_header: (&str, &str),
-    #[case] expected: bool,
-  ) {
+  fn test_route_match_response(#[case] match_header: (&str, &str), #[case] response_header: (&str, &str), #[case] expected: bool) {
     let (name, value) = match_header;
     let mut response_headers = HashMap::new();
-    response_headers
-      .insert(HeaderName::from_str(name).unwrap(), RegexBuilder::new(value).build().unwrap());
-    let route =
-      Route { route_match: RouteMatch { uri: None, response_headers }, action: None, serve: None };
+    response_headers.insert(HeaderName::from_str(name).unwrap(), RegexBuilder::new(value).build().unwrap());
+    let route = Route {
+      route_match: RouteMatch {
+        uri: None,
+        response_headers,
+      },
+      action: None,
+      serve: None,
+    };
 
     let (name, value) = response_header;
     let mut builder = Response::builder();

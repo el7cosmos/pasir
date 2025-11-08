@@ -59,9 +59,8 @@ where
         Err(_) => return Response::internal_server_error(error_body),
       };
 
-      let (error_tx, error_rx) = tokio::sync::oneshot::channel::<
-        fn(error_body: UnsyncBoxBody<Bytes, Infallible>) -> Result<Self::Response, Infallible>,
-      >();
+      let (error_tx, error_rx) =
+        tokio::sync::oneshot::channel::<fn(error_body: UnsyncBoxBody<Bytes, Infallible>) -> Result<Self::Response, Infallible>>();
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
 
       tokio::task::spawn_blocking(move || {

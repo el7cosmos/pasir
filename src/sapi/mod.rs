@@ -52,11 +52,9 @@ impl Sapi {
       builder = builder.ini_entries(entries);
     }
 
-    let function_entry =
-      wrap_function!(pasir_finish_request).build().expect("Failed to build functions");
+    let function_entry = wrap_function!(pasir_finish_request).build().expect("Failed to build functions");
     let mut function_alias = function_entry;
-    function_alias.fname =
-      CString::new("fastcgi_finish_request").expect("String contain nul byte").into_raw();
+    function_alias.fname = CString::new("fastcgi_finish_request").expect("String contain nul byte").into_raw();
 
     let functions = vec![function_entry, function_alias, FunctionEntry::end()];
 
@@ -170,10 +168,7 @@ extern "C" fn send_header(header: *mut SapiHeader, server_context: *mut c_void) 
 
     let context = Context::from_server_context(server_context);
     if let Some(value) = sapi_header.value() {
-      context.append_response_header(
-        HeaderName::from_str(sapi_header.name()).unwrap(),
-        HeaderValue::from_str(value).unwrap(),
-      );
+      context.append_response_header(HeaderName::from_str(sapi_header.name()).unwrap(), HeaderValue::from_str(value).unwrap());
     }
   }
 }
@@ -190,12 +185,7 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   unsafe {
     register_variable(
       SERVER_SOFTWARE,
-      format!(
-        "{}/{} ({})",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-        env!("CARGO_PKG_DESCRIPTION"),
-      ),
+      format!("{}/{} ({})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_DESCRIPTION")),
       vars,
     )
   };
@@ -203,27 +193,13 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
   let sapi_globals = SapiGlobals::get();
   let request_info = sapi_globals.request_info();
   if !request_info.request_uri.is_null() {
-    unsafe {
-      pasir_sys::php_register_variable(
-        REQUEST_URI.as_ptr(),
-        request_info.request_uri.cast_const(),
-        vars,
-      );
-    }
+    unsafe { pasir_sys::php_register_variable(REQUEST_URI.as_ptr(), request_info.request_uri.cast_const(), vars) };
   }
   if !request_info.request_method.is_null() {
-    unsafe {
-      pasir_sys::php_register_variable(REQUEST_METHOD.as_ptr(), request_info.request_method, vars);
-    }
+    unsafe { pasir_sys::php_register_variable(REQUEST_METHOD.as_ptr(), request_info.request_method, vars) };
   }
   if !request_info.query_string.is_null() {
-    unsafe {
-      pasir_sys::php_register_variable(
-        QUERY_STRING.as_ptr(),
-        request_info.query_string.cast_const(),
-        vars,
-      );
-    }
+    unsafe { pasir_sys::php_register_variable(QUERY_STRING.as_ptr(), request_info.query_string.cast_const(), vars) };
   }
 
   if sapi_globals.server_context.is_null() {
@@ -262,13 +238,7 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
   for (name, value) in headers.iter() {
     let header_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
-    unsafe {
-      register_variable(
-        CString::new(header_name).unwrap().as_c_str(),
-        value.to_str().unwrap(),
-        vars,
-      )
-    };
+    unsafe { register_variable(CString::new(header_name).unwrap().as_c_str(), value.to_str().unwrap(), vars) };
   }
 }
 
@@ -331,10 +301,7 @@ pub(crate) mod tests {
   /// Usage: assert_var!(server_variables, REQUEST_URI, "/foo/bar")
   macro_rules! assert_var {
     ($server_variables:expr, $var:ident, $expected:expr) => {
-      assert_eq!(
-        $server_variables.get($var.to_str().unwrap()).unwrap().string().unwrap(),
-        $expected
-      );
+      assert_eq!($server_variables.get($var.to_str().unwrap()).unwrap().string().unwrap(), $expected);
     };
   }
 
@@ -363,10 +330,7 @@ pub(crate) mod tests {
       assert!(sapi_module.send_header.is_some(), "Send header function should be set");
       assert!(sapi_module.read_post.is_some(), "Read post function should be set");
       assert!(sapi_module.read_cookies.is_some(), "Read cookies function should be set");
-      assert!(
-        sapi_module.register_server_variables.is_some(),
-        "Register server variables function should be set"
-      );
+      assert!(sapi_module.register_server_variables.is_some(), "Register server variables function should be set");
       assert!(sapi_module.log_message.is_some(), "Log message function should be set");
       assert!(sapi_module.get_request_time.is_some(), "Get request time function should be set");
       assert!(sapi_module.sapi_error.is_some(), "SAPI error function should be set");
@@ -428,7 +392,10 @@ pub(crate) mod tests {
     let (head_rx, _, context_sender) = ContextSender::receiver();
     let context = ContextBuilder::default().sender(context_sender).build();
     let context_raw = context.into_raw();
-    let header = SapiHeader { header: c"Foo: Bar".as_ptr().cast_mut(), header_len: 8 };
+    let header = SapiHeader {
+      header: c"Foo: Bar".as_ptr().cast_mut(),
+      header_len: 8,
+    };
     let header_raw = Box::into_raw(Box::new(header));
     send_header(header_raw, context_raw.cast());
 
@@ -455,10 +422,7 @@ pub(crate) mod tests {
   #[test]
   fn test_register_server_variables() -> anyhow::Result<()> {
     let sapi = TestSapi::new();
-    assert_eq!(
-      unsafe { pasir_sys::php_module_startup(sapi.0, std::ptr::null_mut()) },
-      ZEND_RESULT_CODE_SUCCESS
-    );
+    assert_eq!(unsafe { pasir_sys::php_module_startup(sapi.0, std::ptr::null_mut()) }, ZEND_RESULT_CODE_SUCCESS);
     assert_eq!(unsafe { pasir_sys::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
 
     let localhost = Ipv4Addr::LOCALHOST;
