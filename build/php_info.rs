@@ -47,12 +47,10 @@ impl PHPInfo {
   /// # Errors
   /// - `PHPInfo` does not contain zend max execution timers information
   pub fn zend_max_execution_timers(&self) -> anyhow::Result<bool> {
-    Ok(
-      self
-        .get_key("Zend Max Execution Timers")
-        .context("Could not find zend max execution timers of PHP")?
-        == "enabled",
-    )
+    let zend_max_execution_timers_value = self
+      .get_key("Zend Max Execution Timers")
+      .context("Could not find zend max execution timers of PHP");
+    Ok(zend_max_execution_timers_value? == "enabled")
   }
 
   fn get_key(&self, key: &str) -> Option<&str> {

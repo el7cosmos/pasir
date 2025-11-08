@@ -52,12 +52,7 @@ pub(crate) struct Context {
 }
 
 impl Context {
-  pub(crate) fn new(
-    root: Arc<PathBuf>,
-    stream: Arc<Stream>,
-    request: Request<Bytes>,
-    sender: ContextSender,
-  ) -> Self {
+  pub(crate) fn new(root: Arc<PathBuf>, stream: Arc<Stream>, request: Request<Bytes>, sender: ContextSender) -> Self {
     let uri = request.uri().path().to_string();
     let mut context = Self {
       root,
@@ -162,8 +157,7 @@ impl Context {
     let mut sapi_globals = SapiGlobals::get_mut();
 
     sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
-    sapi_globals.request_info.request_method =
-      CString::new(self.request.method().as_str())?.into_raw().cast_const();
+    sapi_globals.request_info.request_method = CString::new(self.request.method().as_str())?.into_raw().cast_const();
     sapi_globals.request_info.query_string = uri
       .query()
       .and_then(|query| CString::new(query).ok())
@@ -174,11 +168,9 @@ impl Context {
     sapi_globals.request_info.content_length = headers
       .typed_get::<ContentLength>()
       .map_or(0, |content_length| content_length.0.cast_signed());
-    sapi_globals.request_info.content_type =
-      headers.typed_get::<ContentType>().map_or(Ok(std::ptr::null()), |content_type| {
-        CString::new(content_type.to_string())
-          .map(|content_type| content_type.into_raw().cast_const())
-      })?;
+    sapi_globals.request_info.content_type = headers.typed_get::<ContentType>().map_or(Ok(std::ptr::null()), |content_type| {
+      CString::new(content_type.to_string()).map(|content_type| content_type.into_raw().cast_const())
+    })?;
 
     if let Some(auth) = headers.get("Authorization") {
       unsafe {
@@ -309,7 +301,11 @@ impl ContextSender {
   pub(crate) fn receiver() -> ContextReceiver {
     let (head_tx, head_rx) = tokio::sync::oneshot::channel();
     let (body_tx, body_rx) = UnboundChannel::<Bytes>::new();
-    (head_rx, body_rx, Self { head: Some(head_tx), body: Some(body_tx) })
+    let sender = Self {
+      head: Some(head_tx),
+      body: Some(body_tx),
+    };
+    (head_rx, body_rx, sender)
   }
 
   #[instrument(skip(self))]
@@ -361,11 +357,7 @@ mod tests {
   #[case("/foo/foo.php/bar", "/foo/foo.php", Some("/bar"))]
   #[case("/bar/baz", "/index.php", Some("/bar/baz"))]
   #[trace]
-  fn test_parse_uri(
-    #[case] request_uri: String,
-    #[case] script_name: &str,
-    #[case] path_info: Option<&str>,
-  ) {
+  fn test_parse_uri(#[case] request_uri: String, #[case] script_name: &str, #[case] path_info: Option<&str>) {
     let root = PathBuf::from("tests/fixtures/root");
     let uri = Uri::builder().path_and_query(request_uri).build().unwrap();
     let request = Request::builder().uri(uri).body(Bytes::default()).unwrap();

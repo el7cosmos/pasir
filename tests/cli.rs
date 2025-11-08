@@ -19,7 +19,11 @@ fn test_cli_info() -> Result<(), CargoError> {
 fn test_cli_module() -> Result<(), CargoError> {
   let mut cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
   cmd.arg("-m");
-  cmd.assert().success().stdout(contains("[PHP Modules]")).stdout(contains("[Zend Modules]"));
+  cmd
+    .assert()
+    .success()
+    .stdout(contains("[PHP Modules]"))
+    .stdout(contains("[Zend Modules]"));
 
   Ok(())
 }

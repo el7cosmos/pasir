@@ -52,12 +52,8 @@ impl TryFrom<u32> for ApiVersion {
 
   fn try_from(version: u32) -> anyhow::Result<Self, Self::Error> {
     match version {
-      x if ((ApiVersion::Php82 as u32)..(ApiVersion::Php83 as u32)).contains(&x) => {
-        Ok(ApiVersion::Php82)
-      }
-      x if ((ApiVersion::Php83 as u32)..(ApiVersion::Php84 as u32)).contains(&x) => {
-        Ok(ApiVersion::Php83)
-      }
+      x if ((ApiVersion::Php82 as u32)..(ApiVersion::Php83 as u32)).contains(&x) => Ok(ApiVersion::Php82),
+      x if ((ApiVersion::Php83 as u32)..(ApiVersion::Php84 as u32)).contains(&x) => Ok(ApiVersion::Php83),
       x if (ApiVersion::Php84 as u32) == x => Ok(ApiVersion::Php84),
       version => Err(anyhow!(
         "The current version of PHP is not supported. Current PHP API version: {}, requires a version between {} and {}",
