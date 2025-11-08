@@ -32,10 +32,7 @@ where
   type Data = D;
   type Error = Infallible;
 
-  fn poll_frame(
-    mut self: Pin<&mut Self>,
-    cx: &mut Context<'_>,
-  ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+  fn poll_frame(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
     match self.rx_frame.poll_recv(cx) {
       Poll::Ready(frame @ Some(_)) => return Poll::Ready(frame.map(Ok)),
       Poll::Ready(None) | Poll::Pending => {}

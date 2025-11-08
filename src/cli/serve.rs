@@ -55,7 +55,10 @@ impl Stream {
 impl Default for Stream {
   fn default() -> Self {
     let socket = SocketAddr::new(IpAddr::from(Ipv4Addr::LOCALHOST), Default::default());
-    Self { local_addr: socket, peer_addr: socket }
+    Self {
+      local_addr: socket,
+      peer_addr: socket,
+    }
   }
 }
 
@@ -69,7 +72,12 @@ pub struct Serve {
 
 impl Serve {
   pub fn new(address: String, port: u16, root: PathBuf, config: PathBuf) -> Self {
-    Self { address, port, root, config }
+    Self {
+      address,
+      port,
+      root,
+      config,
+    }
   }
 
   async fn serve(self) -> anyhow::Result<()> {

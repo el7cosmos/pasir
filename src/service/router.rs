@@ -32,9 +32,7 @@ impl RouterService {
     self.inner.clone().fallback(self.php.clone())
   }
 
-  fn map_serve_dir_response(
-    response: Response<ServeFileSystemResponseBody>,
-  ) -> Response<ResponseBody> {
+  fn map_serve_dir_response(response: Response<ServeFileSystemResponseBody>) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|_| unreachable!()).boxed_unsync())
   }
 }

@@ -102,14 +102,9 @@ impl Executable for Cli {
       Module {}.execute().await
     } else {
       let config = self.config.unwrap_or(self.root.join("pasir.toml"));
-      Serve::new(
-        self.address,
-        self.port.expect("PORT argument were not provided"),
-        self.root,
-        config,
-      )
-      .execute()
-      .await
+      Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root, config)
+        .execute()
+        .await
     };
 
     Self::shutdown(sapi);
@@ -141,7 +136,11 @@ fn parse_config(arg: &str) -> Result<PathBuf, std::io::Error> {
 }
 
 fn parse_define(arg: &str) -> anyhow::Result<String> {
-  if arg.split_once('=').is_some() { Ok(arg.to_string()) } else { Ok(format!("{arg}=On")) }
+  if arg.split_once('=').is_some() {
+    Ok(arg.to_string())
+  } else {
+    Ok(format!("{arg}=On"))
+  }
 }
 
 #[cfg(test)]

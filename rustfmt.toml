@@ -1,6 +1,7 @@
-use_small_heuristics = "Max"
+fn_call_width = 100
+max_width = 140
 tab_spaces = 2
 
 # Unstable options
-imports_granularity = "Item"
 group_imports = "StdExternalCrate"
+imports_granularity = "Item"
