@@ -3,10 +3,10 @@ use std::ffi::CStr;
 use std::io::Write;
 
 use nu_ansi_term::Color;
-use pasir::ffi::module_registry;
-use pasir::ffi::zend_extension;
-use pasir::ffi::zend_extensions;
-use pasir::ffi::zend_module_entry;
+use pasir_sys::module_registry;
+use pasir_sys::zend_extension;
+use pasir_sys::zend_extensions;
+use pasir_sys::zend_module_entry;
 
 use crate::cli::Executable;
 

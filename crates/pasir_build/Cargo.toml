@@ -1,0 +1,13 @@
+[package]
+name = "pasir_build"
+version = "0.1.0"
+edition.workspace = true
+description = "Pasir's build script library"
+repository.workspace = true
+license.workspace = true
+keywords = ["php", "sapi"]
+categories = ["development-tools::build-utils"]
+
+[dependencies]
+anyhow.workspace = true
+which = "8.0.0"

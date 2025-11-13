@@ -1,0 +1,14 @@
+[package]
+name = "pasir_sapi"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+ext-php-rs = { workspace = true, features = ["embed"] }
+libc = "0.2.177"
+pasir_sys.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true

@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::ffi::NulError;
+use std::ffi::c_char;
 use std::ffi::c_int;
-use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,6 +23,7 @@ use hyper::http::HeaderValue;
 use hyper::http::response::Parts;
 use pasir::unbound_channel::Sender;
 use pasir::unbound_channel::UnboundChannel;
+use pasir_sapi::context::ServerContext;
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::oneshot::Sender as OneShotSender;
 use tracing::debug;
@@ -30,7 +31,6 @@ use tracing::instrument;
 
 use crate::cli::serve::Stream;
 use crate::sapi::ext::FromSapiHeaders;
-use crate::sapi::util::handle_abort_connection;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) enum ResponseType {
@@ -101,21 +101,6 @@ impl Context {
     }
   }
 
-  #[must_use = "losing the pointer will leak memory"]
-  pub(crate) fn into_raw(self) -> *mut Context {
-    Box::into_raw(Box::new(self))
-  }
-
-  #[must_use = "call `drop(Context::from_raw(ptr))` if you intend to drop the `Context`"]
-  pub(crate) unsafe fn from_raw(ptr: *mut c_void) -> Box<Self> {
-    unsafe { Box::from_raw(ptr.cast()) }
-  }
-
-  pub(crate) fn from_server_context<'a>(server_context: *mut c_void) -> &'a mut Context {
-    let context = server_context.cast();
-    unsafe { &mut *context }
-  }
-
   pub(crate) fn root(&self) -> &Path {
     self.root.as_path()
   }
@@ -144,10 +129,6 @@ impl Context {
     self.request.version()
   }
 
-  pub(crate) fn body_mut(&mut self) -> &mut Bytes {
-    self.request.body_mut()
-  }
-
   #[instrument(skip(self), err)]
   pub(crate) fn init_sapi_globals(&self) -> Result<(), NulError> {
     let uri = self.request.uri();
@@ -174,7 +155,7 @@ impl Context {
 
     if let Some(auth) = headers.get("Authorization") {
       unsafe {
-        pasir::ffi::php_handle_auth_data(CString::new(auth.as_bytes())?.as_ptr());
+        pasir_sys::php_handle_auth_data(CString::new(auth.as_bytes())?.as_ptr());
       }
     }
 
@@ -224,18 +205,30 @@ impl Context {
 
     false
   }
+}
 
-  pub(crate) fn is_request_finished(&self) -> bool {
+impl ServerContext for Context {
+  fn read_post(&mut self, buffer: *mut c_char, to_read: usize) -> usize {
+    if to_read > self.request.body_mut().len() {
+      return 0;
+    }
+
+    let bytes = self.request.body_mut().split_to(to_read);
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, bytes.len()) };
+    bytes.len()
+  }
+
+  fn is_request_finished(&self) -> bool {
     self.request_finished
   }
 
   #[instrument(skip(self))]
-  pub(crate) fn finish_request(&mut self) -> bool {
+  fn finish_request(&mut self) -> bool {
     if self.request_finished {
       return false;
     }
 
-    unsafe { pasir::ffi::php_output_end_all() }
+    unsafe { pasir_sys::php_output_end_all() }
 
     if let Some(body_tx) = self.sender.body.take() {
       body_tx.abort();
@@ -315,7 +308,7 @@ impl ContextSender {
         headers.status = status;
       }
       if head_tx.send(headers).is_err() {
-        handle_abort_connection();
+        pasir_sapi::util::handle_abort_connection();
         return false;
       }
     }
@@ -326,6 +319,7 @@ impl ContextSender {
 
 #[cfg(test)]
 mod tests {
+  use std::ffi::CString;
   use std::ffi::c_int;
   use std::path::PathBuf;
   use std::sync::Arc;
@@ -339,6 +333,7 @@ mod tests {
   use hyper::Version;
   use hyper::header::CONTENT_LENGTH;
   use hyper::header::CONTENT_TYPE;
+  use pasir_sapi::context::ServerContext;
   use rstest::rstest;
 
   use crate::sapi::context::Context;
@@ -407,7 +402,7 @@ mod tests {
     let context = ContextBuilder::default().sender(context_sender).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
-    unsafe { pasir::ffi::php_output_startup() };
+    unsafe { pasir_sys::php_output_startup() };
     let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
 
     // assert that `flush` is true if the request not finished yet.
@@ -416,5 +411,29 @@ mod tests {
     assert!(context.finish_request());
     // assert that `flush` is false if the request finished already.
     assert!(!context.flush());
+  }
+
+  #[test]
+  fn test_read_post() {
+    let _sapi = TestSapi::new();
+
+    let request = Request::new(Bytes::from_static(b"Foo"));
+    let mut context = ContextBuilder::default().request(request).build();
+
+    let buffer_raw = CString::default().into_raw();
+    assert_eq!(context.read_post(buffer_raw, 1), 1);
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"F");
+
+    let buffer_raw = CString::default().into_raw();
+    assert_eq!(context.read_post(buffer_raw, 2), 2);
+    // SapiGlobals::get_mut().read_post_bytes = 3;
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"oo");
+
+    let buffer_raw = CString::default().into_raw();
+    assert_eq!(context.read_post(buffer_raw, 3), 0);
+    let buffer = unsafe { CString::from_raw(buffer_raw) };
+    assert_eq!(buffer.as_c_str(), c"");
   }
 }
