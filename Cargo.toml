@@ -12,7 +12,7 @@ build = "build/mod.rs"
 [dependencies]
 anyhow = "1.0.100"
 bytes = "1.10.1"
-clap = { version = "4.5.50", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
+clap = { version = "4.5.51", features = ["color", "help", "usage", "error-context", "suggestions", "derive", "env", "string"] }
 clap-verbosity-flag = { version = "3.0.4", default-features = false, features = ["tracing"] }
 ext-php-rs = { version = "0.15.1", default-features = false, features = ["embed"] }
 futures-util = { version = "0.3.31", default-features = false }
