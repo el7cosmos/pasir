@@ -71,5 +71,11 @@ default = ["ext-php-rs/runtime", "pasir_sys/runtime"]
 clang_static = ["ext-php-rs/static", "pasir_sys/static"]
 static = []
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
+
+[lints]
+workspace = true
+
 [profile.dev]
 debug = true

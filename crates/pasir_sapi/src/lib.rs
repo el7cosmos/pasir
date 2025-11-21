@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ops::Sub;
@@ -213,7 +215,8 @@ pub unsafe fn sapi_test_shutdown() {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
   use std::ffi::CString;
   use std::ffi::NulError;
   use std::ffi::c_char;

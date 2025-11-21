@@ -21,3 +21,6 @@ pasir_build.workspace = true
 
 [features]
 tracing = ["dep:tracing"]
+
+[lints]
+workspace = true

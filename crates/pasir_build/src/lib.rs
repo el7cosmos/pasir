@@ -1,4 +1,8 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub mod api_version;
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub mod php_info;
 
 use std::path::PathBuf;

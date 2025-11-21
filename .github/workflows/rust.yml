@@ -67,7 +67,7 @@ jobs:
           tool: cargo-llvm-cov,nextest
       - run: cargo clippy --workspace
       - run: cargo build --workspace
-      - run: cargo llvm-cov nextest --workspace --profile ci --lcov --output-path lcov.info
+      - run: cargo +nightly llvm-cov nextest --workspace --profile ci --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

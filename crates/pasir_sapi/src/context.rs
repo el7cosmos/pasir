@@ -114,6 +114,7 @@ pub trait ServerContext: Sized {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
   use std::ffi::CString;
   use std::ffi::NulError;
