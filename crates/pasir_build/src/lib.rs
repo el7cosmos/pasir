@@ -1,3 +1,6 @@
+pub mod api_version;
+pub mod php_info;
+
 use std::path::PathBuf;
 
 use anyhow::Context;
