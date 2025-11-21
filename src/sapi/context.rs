@@ -129,8 +129,44 @@ impl Context {
     self.request.version()
   }
 
+  pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
+  where
+    K: IntoHeaderName,
+  {
+    self.headers.append(key, value);
+  }
+
+  #[instrument(skip(self, data))]
+  pub(crate) fn ub_write(&mut self, data: Bytes) -> bool {
+    if let Some(mut body_tx) = self.sender.body.take() {
+      if let Err(frame) = body_tx.send(Frame::data(data)) {
+        debug!("Failed to send data to body channel: {frame}");
+        return false;
+      }
+
+      self.sender.body = Some(body_tx);
+      return true;
+    };
+
+    false
+  }
+
+  #[instrument(skip(self))]
+  pub(crate) fn flush(&mut self) -> bool {
+    if self.sender.head.is_some() {
+      let (mut parts, _) = Response::<Bytes>::default().into_parts();
+      parts.headers = std::mem::take(&mut self.headers);
+      parts.extensions.insert(ResponseType::Chunked);
+      return self.sender.send_head(parts);
+    }
+
+    false
+  }
+}
+
+impl ServerContext for Context {
   #[instrument(skip(self), err)]
-  pub(crate) fn init_sapi_globals(&self) -> Result<(), NulError> {
+  fn init_sapi_globals(&mut self) -> Result<(), NulError> {
     let uri = self.request.uri();
     let headers = self.request.headers();
     let path_translated = format!("{}{}", self.root.to_string_lossy(), self.script_name);
@@ -172,42 +208,6 @@ impl Context {
     Ok(())
   }
 
-  pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
-  where
-    K: IntoHeaderName,
-  {
-    self.headers.append(key, value);
-  }
-
-  #[instrument(skip(self, data))]
-  pub(crate) fn ub_write(&mut self, data: Bytes) -> bool {
-    if let Some(mut body_tx) = self.sender.body.take() {
-      if let Err(frame) = body_tx.send(Frame::data(data)) {
-        debug!("Failed to send data to body channel: {frame}");
-        return false;
-      }
-
-      self.sender.body = Some(body_tx);
-      return true;
-    };
-
-    false
-  }
-
-  #[instrument(skip(self))]
-  pub(crate) fn flush(&mut self) -> bool {
-    if self.sender.head.is_some() {
-      let (mut parts, _) = Response::<Bytes>::default().into_parts();
-      parts.headers = std::mem::take(&mut self.headers);
-      parts.extensions.insert(ResponseType::Chunked);
-      return self.sender.send_head(parts);
-    }
-
-    false
-  }
-}
-
-impl ServerContext for Context {
   fn read_post(&mut self, buffer: *mut c_char, to_read: usize) -> usize {
     if to_read > self.request.body_mut().len() {
       return 0;

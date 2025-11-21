@@ -13,6 +13,7 @@ use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 use crate::context::ServerContext;
 
 pub mod context;
+pub mod error;
 pub mod ext;
 pub mod util;
 pub mod variables;
@@ -118,9 +119,103 @@ pub trait Sapi {
   }
 }
 
+/// Initializes the PHP SAPI module for testing purposes in a controlled environment.
+///
+/// This function is marked as `unsafe` because it involves interactions with
+/// raw pointers and external FFI (Foreign Function Interface) calls, requiring
+/// careful handling to avoid undefined behavior. It should only be used in a test
+/// configuration, as indicated by the `#[cfg(test)]` attribute.
+///
+/// # Parameters
+/// - `sapi`: A mutable raw pointer to a `SapiModule` structure, representing the SAPI module to be initialized.
+///
+/// # Safety
+/// This function executes unsafe external FFI functions and directly operates on
+/// raw pointers, which can lead to undefined behavior, memory corruption, or application
+/// crashes if misused. Make sure that the provided `sapi` pointer is valid, properly allocated,
+/// and initialized before calling this function. The caller is responsible for ensuring safety.
+///
+/// # Functionality
+/// 1. Calls the `ext_php_rs::embed::ext_php_rs_sapi_startup` function to initialize the ext-php-rs framework.
+/// 2. Calls the `pasir_sys::sapi_startup` function to set up the given SAPI module (`sapi`).
+/// 3. Calls the `pasir_sys::php_module_startup` function to complete the initialization of the PHP modules.
+///
+/// # Example
+/// ```rust
+/// #[cfg(test)]
+/// unsafe {
+///     let mut sapi: SapiModule = SapiModule::default(); // Assuming defaultable SapiModule for example.
+///     sapi_test_startup(&mut sapi);
+/// }
+/// ```
+///
+/// # Caveats
+/// - This function is only available in test builds as it is conditionally compiled
+///   with the `#[cfg(test)]` directive.
+/// - Do not call this function outside a controlled testing environment.
+///
+/// # See Also
+/// - `ext_php_rs::embed::ext_php_rs_sapi_startup`
+/// - `pasir_sys::sapi_startup`
+/// - `pasir_sys::php_module_startup`
+#[cfg(test)]
+pub unsafe fn sapi_test_startup(sapi: *mut SapiModule) {
+  unsafe {
+    ext_php_rs::embed::ext_php_rs_sapi_startup();
+    pasir_sys::sapi_startup(sapi);
+    pasir_sys::php_module_startup(sapi, std::ptr::null_mut());
+  }
+}
+
+/// Shuts down the embedded SAPI and cleans up resources used during testing.
+///
+/// # Safety
+/// This function is `unsafe` because it directly interacts with and shuts down
+/// the underlying PHP SAPI subsystem, which may leave the program in an
+/// undefined state if not used correctly. It is intended to be used only in
+/// test environments and assumes the SAPI has been properly initialized before
+/// calling this function.
+///
+/// # Details
+/// The function sequentially shuts down the PHP module and the SAPI layer
+/// through calls to the underlying `pasir_sys` library. It also finalizes the
+/// embedded Rust-PHP integration via calls to `ext_php_rs`. These steps
+/// ensure a clean shutdown of the testing environment.
+///
+/// # Usage
+/// This function should only be called within a test configuration to
+/// clean up resources used during testing of PHP integration with Rust.
+/// Ensure that no other parts of the program depend on the SAPI subsystem
+/// after invoking this function.
+///
+/// # Example
+/// ```
+/// fn test_sapi_shutdown() {
+///     unsafe {
+///         // perform the necessary SAPI initialization here
+///
+///         sapi_test_shutdown();
+///     }
+/// }
+/// ```
+///
+/// # Notes
+/// - Misuse of this function can result in undefined behavior.
+/// - Ensure that all cleanup steps are correctly performed, and no later
+///   calls to PHP APIs are made after shutdown.
+#[cfg(test)]
+pub unsafe fn sapi_test_shutdown() {
+  unsafe {
+    pasir_sys::php_module_shutdown();
+    pasir_sys::sapi_shutdown();
+    ext_php_rs::embed::ext_php_rs_sapi_shutdown();
+  }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
   use std::ffi::CString;
+  use std::ffi::NulError;
   use std::ffi::c_char;
   use std::ffi::c_int;
   use std::time::SystemTime;
@@ -135,9 +230,32 @@ pub(crate) mod tests {
 
   use crate::Sapi;
   use crate::context::ServerContext;
-  use crate::context::tests::TestServerContext;
+  use crate::sapi_test_shutdown;
 
-  pub(crate) struct TestSapi(*mut SapiModule);
+  #[derive(Default)]
+  struct TestServerContext {
+    finish_request: bool,
+  }
+
+  impl ServerContext for TestServerContext {
+    fn init_sapi_globals(&mut self) -> Result<(), NulError> {
+      Ok(())
+    }
+
+    fn read_post(&mut self, _buffer: *mut c_char, to_read: usize) -> usize {
+      to_read
+    }
+
+    fn is_request_finished(&self) -> bool {
+      false
+    }
+
+    fn finish_request(&mut self) -> bool {
+      self.finish_request
+    }
+  }
+
+  struct TestSapi(*mut SapiModule);
 
   impl TestSapi {
     pub(crate) fn new() -> Self {
@@ -153,9 +271,7 @@ pub(crate) mod tests {
 
   impl Drop for TestSapi {
     fn drop(&mut self) {
-      unsafe { pasir_sys::php_module_shutdown() };
-      unsafe { pasir_sys::sapi_shutdown() };
-      unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
+      unsafe { sapi_test_shutdown() };
     }
   }
 

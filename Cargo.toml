@@ -24,9 +24,12 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 anyhow = "1.0.100"
 ext-php-rs = { version = "0.15.1", default-features = false }
+pasir_build = { version = "0.1.0", path = "crates/pasir_build" }
 pasir_sapi = { version = "0.1.0", path = "crates/pasir_sapi" }
 pasir_sys = { version = "0.1.0", path = "crates/pasir_sys", default-features = false }
 rstest = { version = "0.26.1", default-features = false }
+thiserror = "2.0.17"
+tracing = "0.1.41"
 
 [dependencies]
 anyhow.workspace = true
@@ -40,16 +43,16 @@ http-body-util = "0.1.3"
 hyper = { version = "1.7.0", features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1.17", features = ["server-auto", "service", "tokio", "server-graceful"] }
 nu-ansi-term = "0.50.3"
-pasir_sapi.workspace = true
+pasir_sapi = { workspace = true, features = ["tracing"] }
 pasir_sys.workspace = true
 regex = "1.12.2"
 serde = { version = "1.0.228", features = ["derive"] }
-thiserror = "2.0.17"
+thiserror.workspace = true
 tokio = { version = "1.48.0", features = ["macros", "net", "rt-multi-thread", "signal"] }
 toml = "0.9.8"
 tower = { version = "0.5.2", features = ["timeout", "util"] }
 tower-http = { version = "0.6.6", features = ["add-extension", "fs", "request-id", "set-header", "trace", "util"] }
-tracing = "0.1.41"
+tracing.workspace = true
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["ansi"] }
 
 [dev-dependencies]
@@ -60,7 +63,7 @@ rstest.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
-pasir_build = { version = "0.1.0", path = "crates/pasir_build" }
+pasir_build.workspace = true
 serde_json = "1.0.145"
 
 [features]

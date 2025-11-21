@@ -1,15 +1,10 @@
 use std::convert::Infallible;
-use std::ffi::CString;
-use std::ffi::c_void;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Poll;
 
 use bytes::Bytes;
-use ext_php_rs::embed::Embed;
-use ext_php_rs::zend::SapiGlobals;
-use ext_php_rs::zend::try_catch_first;
 use http_body_util::BodyExt;
 use http_body_util::Empty;
 use http_body_util::Full;
@@ -17,15 +12,12 @@ use http_body_util::combinators::UnsyncBoxBody;
 use hyper::Request;
 use hyper::Response;
 use hyper::body::Body;
-use pasir::error::PhpError;
 use pasir_sapi::context::ServerContext;
-use pasir_sys::ZEND_RESULT_CODE_FAILURE;
+use pasir_sapi::error::ExecutePhpError;
 use tower::Service;
 use tracing::error;
-use tracing::instrument;
 
 use crate::cli::serve::Stream;
-use crate::free_raw_cstring_mut;
 use crate::sapi::context::Context;
 use crate::sapi::context::ContextSender;
 use crate::sapi::context::ResponseType;
@@ -68,15 +60,15 @@ where
         unsafe { pasir_sys::zend_update_current_locale() }
 
         let request = Request::from_parts(head, bytes);
-        let context = Context::new(root, stream, request, context_tx);
-        if context.init_sapi_globals().is_err() {
-          return error_tx.send(Response::bad_request);
-        }
-
-        if let Err(e) = execute_php(context) {
+        let context = Context::new(root.clone(), stream, request, context_tx);
+        let script = root.join(context.script_name().trim_start_matches("/"));
+        if let Err(e) = context.execute_php(script, |err| {
+          error!("run_script failed: {:?}", err);
+        }) {
           let callback = match e {
-            PhpError::RequestStartupFailed => Response::service_unavailable,
-            PhpError::ServerContextCorrupted => Response::internal_server_error,
+            ExecutePhpError::InitSapiGlobalsError(_) => Response::bad_request,
+            ExecutePhpError::RequestStartupFailed => Response::service_unavailable,
+            ExecutePhpError::Bailout => Response::internal_server_error,
           };
           return error_tx.send(callback);
         }
@@ -101,45 +93,6 @@ where
       }
     })
   }
-}
-
-#[instrument(skip(context), err)]
-fn execute_php(context: Context) -> Result<(), PhpError> {
-  let script = context.root().join(context.script_name().trim_start_matches("/"));
-
-  let context_raw = context.into_raw();
-  SapiGlobals::get_mut().server_context = context_raw.cast::<c_void>();
-
-  if unsafe { pasir_sys::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
-    return Err(PhpError::RequestStartupFailed);
-  }
-
-  let catch = try_catch_first(|| {
-    if let Err(e) = Embed::run_script(script.as_path())
-      && e.is_bailout()
-    {
-      error!("run_script failed: {:?}", e);
-    }
-  });
-
-  request_shutdown();
-
-  if let Err(e) = catch {
-    error!("catch failed: {:?}", e);
-  }
-
-  Ok(())
-}
-
-fn request_shutdown() {
-  #[cfg(php84)]
-  unsafe {
-    pasir_sys::zend_shutdown_strtod()
-  };
-  unsafe { pasir_sys::php_request_shutdown(std::ptr::null_mut()) };
-
-  let mut request_info = SapiGlobals::get().request_info;
-  free_raw_cstring_mut!(request_info, path_translated);
 }
 
 #[cfg(test)]
