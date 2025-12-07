@@ -70,7 +70,9 @@ impl Context {
 
   fn parse_uri(&mut self, uri: String, path_info: Option<String>) {
     let root = self.root.as_path();
-    let file = root.join(uri.trim_start_matches('/'));
+    // Normalize the URI by removing trailing slashes before processing
+    let normalized_uri = uri.trim_end_matches('/');
+    let file = root.join(normalized_uri.trim_start_matches('/'));
     self.path_info = path_info;
 
     // If we are at the document root, route to `/index.php`.
@@ -79,15 +81,15 @@ impl Context {
       return;
     }
 
-    if file.is_file() && uri.ends_with(".php") {
-      self.script_name = uri;
+    if file.is_file() && normalized_uri.ends_with(".php") {
+      self.script_name = normalized_uri.to_string();
       return;
     }
 
     if file.is_dir() {
       let index = file.join("index.php");
       if index.is_file() {
-        self.script_name = format!("{}/index.php", uri.trim_end_matches('/'));
+        self.script_name = format!("{}/index.php", normalized_uri);
         return;
       }
     }
@@ -95,8 +97,8 @@ impl Context {
     if let Some(name) = file.file_name() {
       let suffix = format!("/{}", name.to_string_lossy());
       let path_info = format!("{}{}", suffix, self.path_info.take().unwrap_or_default());
-      if let Some(uri) = uri.strip_suffix(suffix.as_str()) {
-        self.parse_uri(uri.to_string(), Some(path_info));
+      if let Some(parent_uri) = normalized_uri.strip_suffix(suffix.as_str()) {
+        self.parse_uri(parent_uri.to_string(), Some(path_info));
       }
     }
   }
