@@ -21,6 +21,6 @@ Third-party attributions
 This product includes or is derived from the following third-party software:
 
 1) ext-php-rs
-   - Source: https://github.com/davidcole1340/ext-php-rs
+   - Source: https://github.com/extphprs/ext-php-rs
    - Copyright: (c) 2021 David Cole <david.cole1340@gmail.com> and contributors
    - License: Apache License, Version 2.0 (dual-licensed MIT OR Apache-2.0; this project opts for Apache-2.0)
