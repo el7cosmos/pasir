@@ -11,7 +11,7 @@ use anyhow::Context;
 use anyhow::bail;
 
 /// Output of `php -i`.
-pub(crate) struct PHPInfo(String);
+pub struct PHPInfo(String);
 
 impl PHPInfo {
   /// Get the PHP info.
@@ -29,6 +29,14 @@ impl PHPInfo {
       bail!("Failed to call `phpinfo()` status code {}", cmd.status);
     }
     Ok(Self(stdout.to_string()))
+  }
+
+  /// Checks if thread safety is enabled.
+  ///
+  /// # Errors
+  /// - `PHPInfo` does not contain thread safety information
+  pub fn thread_safety(&self) -> anyhow::Result<bool> {
+    Ok(self.get_key("Thread Safety").context("Could not find thread safety of PHP")? == "enabled")
   }
 
   /// Get the zend version.

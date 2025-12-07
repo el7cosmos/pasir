@@ -65,9 +65,9 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov,nextest
-      - run: cargo clippy
-      - run: cargo build
-      - run: cargo llvm-cov nextest --profile ci --lcov --output-path lcov.info
+      - run: cargo clippy --workspace
+      - run: cargo build --workspace
+      - run: cargo +nightly llvm-cov nextest --workspace --profile ci --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

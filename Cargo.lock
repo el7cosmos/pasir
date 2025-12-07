@@ -969,9 +969,9 @@ checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
 
 [[package]]
 name = "libc"
-version = "0.2.174"
+version = "0.2.177"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
+checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 
 [[package]]
 name = "libloading"
@@ -1214,9 +1214,7 @@ version = "0.5.4"
 dependencies = [
  "anyhow",
  "assert_cmd",
- "bindgen",
  "bytes",
- "cargo-manifest",
  "clap",
  "clap-verbosity-flag",
  "ext-php-rs",
@@ -1226,6 +1224,9 @@ dependencies = [
  "hyper",
  "hyper-util",
  "nu-ansi-term",
+ "pasir_build",
+ "pasir_sapi",
+ "pasir_sys",
  "predicates",
  "proptest",
  "regex",
@@ -1239,7 +1240,39 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "pasir_build"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "which",
+]
+
+[[package]]
+name = "pasir_sapi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ext-php-rs",
+ "libc",
+ "pasir_build",
+ "pasir_sys",
+ "rstest",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "pasir_sys"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "cargo-manifest",
+ "ext-php-rs",
+ "pasir_build",
 ]
 
 [[package]]
@@ -1568,9 +1601,9 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 
 [[package]]
 name = "rusty-fork"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb3dcc6e454c328bb824492db107ab7c0ae8fcffe4ad210136ef014458c1bc4f"
+checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
 dependencies = [
  "fnv",
  "quick-error",

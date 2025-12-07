@@ -9,7 +9,7 @@ use std::cmp::PartialOrd;
 use anyhow::Error;
 use anyhow::anyhow;
 
-use crate::PHPInfo;
+use crate::php_info::PHPInfo;
 
 #[derive(PartialEq, PartialOrd)]
 enum ApiVersion {
@@ -66,11 +66,11 @@ impl TryFrom<u32> for ApiVersion {
 }
 
 /// Checks the PHP Zend API version and set any configuration flags required.
-pub(crate) fn check_php_version(info: &PHPInfo) -> anyhow::Result<()> {
+pub fn check_php_version(info: &PHPInfo) -> anyhow::Result<()> {
   let version = info.zend_version()?;
   let version: ApiVersion = version.try_into()?;
 
-  println!("cargo::rustc-check-cfg=cfg(php82, php83, php84, php_zts, php_debug)");
+  println!("cargo::rustc-check-cfg=cfg(php82, php83, php84)");
   for supported_version in version.supported_apis() {
     println!("cargo:rustc-cfg={}", supported_version.cfg_name());
   }
