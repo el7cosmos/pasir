@@ -4,7 +4,7 @@ version = "0.5.4"
 edition.workspace = true
 description = "PHP Application Server In Rust"
 repository.workspace = true
-license = "GPL-3.0-or-later"
+license.workspace = true
 keywords = ["php", "sapi", "http"]
 categories = ["web-programming::http-server"]
 build = "build/mod.rs"
@@ -19,7 +19,7 @@ members = [
 [workspace.package]
 edition = "2024"
 repository = "https://github.com/el7cosmos/pasir"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
