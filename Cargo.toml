@@ -29,7 +29,7 @@ pasir_sapi = { version = "0.1.0", path = "crates/pasir_sapi" }
 pasir_sys = { version = "0.1.0", path = "crates/pasir_sys", default-features = false }
 rstest = { version = "0.26.1", default-features = false }
 thiserror = "2.0.17"
-tracing = "0.1.41"
+tracing = "0.1.44"
 
 [dependencies]
 anyhow.workspace = true
