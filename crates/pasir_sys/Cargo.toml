@@ -14,7 +14,7 @@ ext-php-rs.workspace = true
 [build-dependencies]
 anyhow.workspace = true
 bindgen = { version = "0.72.1", default-features = false }
-cargo-manifest = "0.19.1"
+cargo-manifest = "0.20.0"
 pasir_build = { version = "0.1.0", path = "../pasir_build" }
 
 [features]
