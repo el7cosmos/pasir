@@ -23,7 +23,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
-ext-php-rs = { version = "0.15.1", default-features = false }
+ext-php-rs = { version = "0.15.3", default-features = false }
 pasir_build = { version = "0.1.0", path = "crates/pasir_build" }
 pasir_sapi = { version = "0.1.0", path = "crates/pasir_sapi" }
 pasir_sys = { version = "0.1.0", path = "crates/pasir_sys", default-features = false }
