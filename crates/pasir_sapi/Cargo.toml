@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 ext-php-rs = { workspace = true, features = ["embed"] }
-libc = "0.2.178"
+libc = "0.2.180"
 pasir_sys = { workspace = true, features = ["default"] }
 thiserror.workspace = true
 tracing = { workspace = true, optional = true }
