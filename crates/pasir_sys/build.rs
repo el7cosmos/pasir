@@ -29,6 +29,19 @@ fn main() -> anyhow::Result<()> {
     builder = builder.blocklist_item(item.as_str().unwrap());
   }
 
+  // Only macOS needs an explicit sysroot
+  if std::env::var("CARGO_CFG_TARGET_OS") == Ok(String::from("macos")) {
+    let sdk_path = Command::new("xcrun").arg("--show-sdk-path").output()?;
+
+    if !sdk_path.status.success() {
+      return Err(anyhow::anyhow!("xcrun failed to locate macOS SDK"));
+    }
+
+    let sdk = String::from_utf8(sdk_path.stdout)?.trim().to_string();
+
+    builder = builder.clang_arg(format!("--sysroot={}", sdk));
+  }
+
   let bindings = builder.generate()?;
   let out_path = PathBuf::from(std::env::var("OUT_DIR")?);
   bindings.write_to_file(out_path.join("bindings.rs"))?;
