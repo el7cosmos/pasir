@@ -6,3 +6,7 @@
 /log
 /pkgroot
 /source
+
+# Nix
+/result
+/result-*

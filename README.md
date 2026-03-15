@@ -44,6 +44,18 @@ The binaries are built on the latest PHP version and are statically linked, mean
 extensions.
 To view the list of installed extensions, run `pasir -m` command.
 
+#### Using Nix
+
+```bash
+# Build with default PHP 8.4
+nix build
+
+# Build with a specific PHP version
+nix build .#php85
+```
+
+Available packages: `php82`, `php83`, `php84` (default), `php85`.
+
 #### Using Homebrew
 
 ```bash
@@ -252,6 +264,20 @@ We welcome contributions! Please see our development guidelines:
 4. **Security**: Review any unsafe blocks and PHP integration code carefully
 
 ### Development Setup
+
+#### Using Nix
+
+```bash
+git clone <repository-url>
+cd pasir
+nix develop
+cargo build
+```
+
+The dev shell provides Rust, PHP (ZTS + embed), clang, and all build dependencies.
+Other PHP versions are available: `nix develop .#php82`, `.#php83`, `.#php85`.
+
+#### Manual Setup
 
 ```bash
 # Clone and setup
