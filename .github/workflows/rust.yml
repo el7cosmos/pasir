@@ -69,7 +69,7 @@ jobs:
       - run: cargo clippy --workspace
       - run: cargo build --workspace
       - run: cargo +nightly llvm-cov nextest --workspace --profile ci --lcov --output-path lcov.info
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
