@@ -377,6 +377,7 @@ mod tests {
   use hyper::header::CONTENT_TYPE;
   use pasir_sapi::Sapi;
   use pasir_sapi::context::ServerContext;
+  use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 
   use crate::sapi::context::Context;
   use crate::sapi::context::ContextBuilder;
@@ -520,8 +521,6 @@ mod tests {
     unsafe { pasir_sys::sapi_startup(sapi) };
     unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
 
-    // assert_eq!(pasir_sapi::sapi_startup(sapi), ZEND_RESULT_CODE_SUCCESS);
-
     let localhost = Ipv4Addr::LOCALHOST;
     let root = PathBuf::from("/foo");
     let request = Request::builder()
@@ -536,6 +535,9 @@ mod tests {
       .path_info("/foo/bar")
       .request(request)
       .build();
+
+    assert_eq!(unsafe { pasir_sys::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
+    unsafe { pasir_sys::php_request_shutdown(std::ptr::null_mut()) };
 
     let mut vars = Zval::new();
     let _ = vars.set_array(HashMap::<String, String>::new());
