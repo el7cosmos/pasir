@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::task::Poll;
 
 use bytes::Bytes;
+use ext_php_rs::embed::PhpThreadGuard;
 use http_body_util::BodyExt;
 use http_body_util::Empty;
 use http_body_util::Full;
@@ -56,7 +57,7 @@ where
       let (head_rx, body_rx, context_tx) = ContextSender::receiver();
 
       tokio::task::spawn_blocking(move || {
-        unsafe { ext_php_rs::embed::ext_php_rs_sapi_per_thread_init() }
+        let _guard = PhpThreadGuard::new();
         unsafe { pasir_sys::zend_update_current_locale() }
 
         let request = Request::from_parts(head, bytes);
@@ -105,8 +106,7 @@ mod tests {
   use hyper::Request;
   use hyper::StatusCode;
   use hyper::body::Body;
-  use pasir_sapi::Sapi as PasirSapi;
-  use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
+  use pasir_sapi::Sapi as _;
   use tower::Service;
 
   use crate::cli::serve::Stream;
@@ -115,9 +115,10 @@ mod tests {
 
   #[tokio::test]
   async fn test_php_service() {
-    let sapi = Sapi::new(false, None);
+    let sapi = Sapi::build_module().expect("build_module failed").into_raw();
     unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
-    assert_eq!(sapi.sapi_startup(), ZEND_RESULT_CODE_SUCCESS);
+    unsafe { pasir_sys::sapi_startup(sapi) };
+    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
 
     let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
     let stream = Stream::default();
@@ -137,5 +138,11 @@ mod tests {
     let response = service.call(request.clone()).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_ne!(response.body().size_hint().lower(), 0);
+
+    unsafe { pasir_sys::php_module_shutdown() }
+    unsafe { pasir_sys::sapi_shutdown() }
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
+
+    unsafe { drop(Box::from_raw(sapi)) };
   }
 }

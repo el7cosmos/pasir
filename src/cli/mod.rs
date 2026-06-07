@@ -6,9 +6,10 @@ use std::path::PathBuf;
 
 use clap_verbosity_flag::InfoLevel;
 use clap_verbosity_flag::Verbosity;
+use ext_php_rs::builders::IniBuilder;
 use ext_php_rs::zend::ExecutorGlobals;
 use pasir::error::PhpError;
-use pasir_sapi::Sapi as PasirSapi;
+use pasir_sapi::Sapi as _;
 use pasir_sys::PHP_VERSION;
 use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
@@ -66,11 +67,6 @@ impl Cli {
   pub(crate) fn verbosity(&self) -> Verbosity<InfoLevel> {
     self.verbosity
   }
-
-  fn shutdown(sapi: Sapi) {
-    sapi.sapi_shutdown();
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
-  }
 }
 
 impl Executable for Cli {
@@ -87,20 +83,28 @@ impl Executable for Cli {
       }
     }
 
-    let ini_entries = match self.define.is_empty() {
-      true => None,
-      false => Some(self.define.join("\n")),
-    };
+    let mut ini_builder = IniBuilder::new();
+    self.define.iter().for_each(|define| ini_builder.define(define).unwrap_or_default());
 
-    let sapi = Sapi::new(self.info, ini_entries);
-    if sapi.sapi_startup() == ZEND_RESULT_CODE_FAILURE {
+    let sapi = if self.info { Info::build_module() } else { Sapi::build_module() }
+      .expect("Failed to build PHP SAPI module")
+      .into_raw();
+
+    unsafe { pasir_sys::sapi_startup(sapi) };
+    if ini_builder.length > 0 {
+      unsafe { (*sapi).ini_entries = ini_builder.finish().as_ptr() };
+    }
+
+    if let Some(startup) = unsafe { (*sapi).startup }
+      && unsafe { startup(sapi) } == ZEND_RESULT_CODE_FAILURE
+    {
       anyhow::bail!("Failed to start PHP SAPI module");
-    };
+    }
 
     let result = if self.info {
-      Info {}.execute().await
+      Info::default().execute().await
     } else if self.modules {
-      Module {}.execute().await
+      Module::default().execute().await
     } else {
       let config = self.config.unwrap_or(self.root.join("pasir.toml"));
       Serve::new(self.address, self.port.expect("PORT argument were not provided"), self.root, config)
@@ -108,7 +112,11 @@ impl Executable for Cli {
         .await
     };
 
-    Self::shutdown(sapi);
+    if let Some(shutdown) = unsafe { (*sapi).shutdown } {
+      unsafe { shutdown(sapi) };
+    }
+    unsafe { pasir_sys::sapi_shutdown() };
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
 
     result
   }

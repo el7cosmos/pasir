@@ -23,8 +23,8 @@ impl Routes {
   pub(crate) fn from_file(path: PathBuf) -> anyhow::Result<Self> {
     info!("Reading routes from {:?}", path);
     let content = std::fs::read_to_string(&path);
-    if content.is_err() {
-      warn!("{}", content.unwrap_err());
+    if let Err(e) = content {
+      warn!("{e}");
       warn!("Using default routes");
       return Ok(Self::default());
     }

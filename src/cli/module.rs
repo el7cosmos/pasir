@@ -10,6 +10,7 @@ use pasir_sys::zend_module_entry;
 
 use crate::cli::Executable;
 
+#[derive(Default)]
 pub struct Module {}
 
 impl Module {

@@ -1,5 +1,3 @@
-use std::ffi::NulError;
-use std::ffi::c_char;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::panic::RefUnwindSafe;
@@ -7,13 +5,16 @@ use std::path::Path;
 
 use ext_php_rs::embed::Embed;
 use ext_php_rs::embed::EmbedError;
+use ext_php_rs::embed::RequestInfo;
+use ext_php_rs::embed::ServerVarRegistrar;
 use ext_php_rs::zend::SapiGlobals;
 use pasir_sys::ZEND_RESULT_CODE_FAILURE;
 
 use crate::error::ExecutePhpError;
+use crate::ext::SapiRequestInfoExt;
 use crate::free_raw_cstring_mut;
 
-pub trait ServerContext: Sized {
+pub trait ServerContext: Sized + ext_php_rs::embed::ServerContext {
   #[must_use = "losing the pointer will leak memory"]
   fn into_raw(self) -> *mut Self {
     Box::into_raw(Box::new(self))
@@ -66,18 +67,21 @@ pub trait ServerContext: Sized {
     unsafe { &mut *context }
   }
 
-  fn init_sapi_globals(&mut self) -> Result<(), NulError>;
+  fn register_server_variables(&self, registrar: &mut ServerVarRegistrar);
 
   #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, embed_error_handler), err))]
-  fn execute_php<P, F>(mut self, script: P, embed_error_handler: F) -> Result<(), ExecutePhpError>
+  fn execute_php<P, F>(self, script: P, embed_error_handler: F) -> Result<(), ExecutePhpError>
   where
     P: AsRef<Path> + Debug + RefUnwindSafe,
     F: Fn(EmbedError) + RefUnwindSafe,
   {
-    if let Err(err) = self.init_sapi_globals() {
-      return Err(ExecutePhpError::from(err));
-    }
-    SapiGlobals::get_mut().server_context = self.into_raw().cast();
+    let mut request_info = RequestInfo::default();
+    self.init_request_info(&mut request_info);
+
+    let mut sapi_globals = SapiGlobals::get_mut();
+    sapi_globals.request_info.populate_from_request_info(request_info);
+    sapi_globals.server_context = self.into_raw().cast();
+    drop(sapi_globals);
 
     if unsafe { pasir_sys::php_request_startup() } == ZEND_RESULT_CODE_FAILURE {
       return Err(ExecutePhpError::RequestStartupFailed);
@@ -96,8 +100,7 @@ pub trait ServerContext: Sized {
       pasir_sys::zend_shutdown_strtod()
     };
     unsafe { pasir_sys::php_request_shutdown(std::ptr::null_mut()) };
-    let mut request_info = SapiGlobals::get().request_info;
-    free_raw_cstring_mut!(request_info, path_translated);
+    free_raw_cstring_mut!(SapiGlobals::get().request_info, path_translated);
 
     if catch.is_err() {
       return Err(ExecutePhpError::Bailout);
@@ -105,109 +108,83 @@ pub trait ServerContext: Sized {
 
     Ok(())
   }
-
-  fn read_post(&mut self, buffer: *mut c_char, to_read: usize) -> usize;
-
-  fn is_request_finished(&self) -> bool;
-
-  fn finish_request(&mut self) -> bool;
 }
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-  use std::ffi::CString;
-  use std::ffi::NulError;
-  use std::ffi::c_char;
-  use std::ffi::c_int;
-  use std::path::PathBuf;
-
-  use ext_php_rs::builders::SapiBuilder;
-  use ext_php_rs::zend::SapiModule;
+  use ext_php_rs::embed::RequestInfo;
+  use ext_php_rs::embed::ServerVarRegistrar;
   use rstest::rstest;
 
   use crate::Sapi;
   use crate::context::ServerContext;
-  use crate::error::ExecutePhpError;
 
   #[rstest]
-  #[case::init_sapi_globals_ok(true)]
-  #[case::init_sapi_globals_err(false)]
-  fn test_execute_php(#[case] init_sapi_globals_ok: bool) {
-    struct TestContext {
-      init_sapi_globals_result: Result<(), NulError>,
-    }
+  fn test_execute_php() {
+    struct TestContext {}
 
-    impl ServerContext for TestContext {
-      fn init_sapi_globals(&mut self) -> Result<(), NulError> {
-        self.init_sapi_globals_result.clone()
+    impl ext_php_rs::embed::ServerContext for TestContext {
+      fn init_request_info(&self, _info: &mut RequestInfo) {}
+
+      fn read_post(&mut self, _buf: &mut [u8]) -> usize {
+        0
       }
 
-      fn read_post(&mut self, _buffer: *mut c_char, _to_read: usize) -> usize {
-        todo!()
-      }
-
-      fn is_request_finished(&self) -> bool {
-        todo!()
+      fn read_cookies(&self) -> Option<&str> {
+        None
       }
 
       fn finish_request(&mut self) -> bool {
-        todo!()
+        true
+      }
+
+      fn is_request_finished(&self) -> bool {
+        false
       }
     }
 
-    struct TestSapi(*mut SapiModule);
+    impl ServerContext for TestContext {
+      fn register_server_variables(&self, _registrar: &mut ServerVarRegistrar) {}
+    }
 
-    impl TestSapi {
-      fn new() -> Self {
-        extern "C" fn read_cookies() -> *mut c_char {
-          std::ptr::null_mut()
-        }
+    struct TestSapi {}
 
-        extern "C" fn ub_write(_str: *const c_char, str_length: usize) -> usize {
-          str_length
-        }
+    impl ext_php_rs::embed::Sapi for TestSapi {
+      type Context = TestContext;
 
-        let sapi = SapiBuilder::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_DESCRIPTION"))
-          .ub_write_function(ub_write)
-          .read_cookies_function(read_cookies)
-          .build()
-          .unwrap()
-          .into_raw();
-        unsafe { crate::sapi_test_startup(sapi) };
-        Self(sapi)
+      fn name() -> &'static str {
+        ""
       }
-    }
 
-    impl Drop for TestSapi {
-      fn drop(&mut self) {
-        unsafe { crate::sapi_test_shutdown() };
+      fn pretty_name() -> &'static str {
+        ""
       }
-    }
 
-    impl Sapi for TestSapi {
-      type ServerContext<'a> = TestContext;
-
-      extern "C" fn log_message(_message: *const c_char, _syslog_type_int: c_int) {}
-    }
-
-    impl From<&TestSapi> for *mut SapiModule {
-      fn from(value: &TestSapi) -> Self {
-        value.0
+      fn ub_write(_ctx: &mut Self::Context, buf: &[u8]) -> usize {
+        assert_eq!(buf, b"foo");
+        buf.len()
       }
+
+      fn log_message(_message: &str, _syslog_type: i32) {}
     }
 
-    let byte: &[u8] = match init_sapi_globals_ok {
-      true => b"foo",
-      false => b"f\0oo",
-    };
-    let init_sapi_globals_result = CString::new(byte).map(|_| ());
+    impl Sapi for TestSapi {}
 
-    let _sapi = TestSapi::new();
-    let context = TestContext {
-      init_sapi_globals_result: init_sapi_globals_result.clone(),
-    };
-    let result = context.execute_php(PathBuf::new(), |_| {});
-    assert_eq!(result, init_sapi_globals_result.map_err(ExecutePhpError::from));
+    let sapi = TestSapi::build_module().unwrap().into_raw();
+
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
+    unsafe { pasir_sys::sapi_startup(sapi) };
+    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+
+    let context = TestContext {};
+    let result = context.execute_php(std::env::current_dir().unwrap().join("tests/fixtures/script.php"), |e| {
+      panic!("{:?}", e);
+    });
+    assert!(result.is_ok());
+
+    unsafe { pasir_sys::php_module_shutdown() };
+    unsafe { pasir_sys::sapi_shutdown() };
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
   }
 }
