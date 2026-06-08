@@ -102,6 +102,7 @@ mod tests {
   use std::sync::Arc;
 
   use bytes::Bytes;
+  use ext_php_rs::embed::SapiModule;
   use http_body_util::BodyExt;
   use http_body_util::Empty;
   use hyper::Request;
@@ -113,12 +114,31 @@ mod tests {
   use crate::sapi::Sapi;
   use crate::service::PhpService;
 
+  struct SapiTestGuard(*mut SapiModule);
+
+  impl SapiTestGuard {
+    fn new() -> Self {
+      let sapi = Sapi::build_module().expect("build_module failed").into_raw();
+      unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
+      unsafe { pasir_sys::sapi_startup(sapi) };
+      unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+
+      Self(sapi)
+    }
+  }
+
+  impl Drop for SapiTestGuard {
+    fn drop(&mut self) {
+      unsafe { pasir_sys::php_module_shutdown() }
+      unsafe { pasir_sys::sapi_shutdown() }
+      unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
+      unsafe { drop(Box::from_raw(self.0)) }
+    }
+  }
+
   #[tokio::test]
   async fn test_php_service() {
-    let sapi = Sapi::build_module().expect("build_module failed").into_raw();
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() }
-    unsafe { pasir_sys::sapi_startup(sapi) };
-    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+    let _guard = SapiTestGuard::new();
 
     let root = PathBuf::from("tests/fixtures/root").canonicalize().unwrap();
     let stream = Stream::default();
@@ -137,11 +157,5 @@ mod tests {
       let body = response.into_body().collect().await.unwrap().to_bytes();
       assert!(!body.is_empty(), "request {i} returned an empty body");
     }
-
-    unsafe { pasir_sys::php_module_shutdown() }
-    unsafe { pasir_sys::sapi_shutdown() }
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() }
-
-    unsafe { drop(Box::from_raw(sapi)) };
   }
 }

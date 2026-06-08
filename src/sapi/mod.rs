@@ -123,6 +123,41 @@ mod tests {
   use crate::sapi::context::ContextBuilder;
   use crate::sapi::context::ContextSender;
 
+  pub(crate) struct SapiTestGuard {}
+
+  impl SapiTestGuard {
+    pub(crate) fn new() -> Self {
+      let sapi = Sapi::build_module().expect("build_module failed").into_raw();
+      unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
+      unsafe { pasir_sys::sapi_startup(sapi) };
+      unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+
+      Self {}
+    }
+  }
+
+  impl Drop for SapiTestGuard {
+    fn drop(&mut self) {
+      unsafe { pasir_sys::php_module_shutdown() };
+      unsafe { pasir_sys::sapi_shutdown() };
+      unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
+    }
+  }
+
+  #[test]
+  fn test_ub_write() {
+    let _guard = SapiTestGuard::new();
+
+    let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
+    let mut context = ContextBuilder::default().sender(context_sender).build();
+
+    let buf = b"Foo";
+    assert_eq!(Sapi::ub_write(&mut context, buf), 3);
+
+    assert!(context.finish_request());
+    assert_eq!(Sapi::ub_write(&mut context, buf), 0);
+  }
+
   #[test]
   #[traced_test]
   fn test_log_message() {
@@ -138,10 +173,7 @@ mod tests {
 
   #[test]
   fn test_pasir_finish_request() {
-    let sapi = Sapi::build_module().expect("build_module failed").into_raw();
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
-    unsafe { pasir_sys::sapi_startup(sapi) };
-    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+    let _guard = SapiTestGuard::new();
 
     let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
     let context = ContextBuilder::default().sender(context_sender).build();
@@ -152,13 +184,7 @@ mod tests {
     assert!(super::pasir_finish_request());
     assert!(!super::pasir_finish_request());
 
-    let context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+    let context = Context::from_server_context(SapiGlobals::get().server_context);
     assert!(context.is_request_finished());
-
-    unsafe { pasir_sys::php_module_shutdown() };
-    unsafe { pasir_sys::sapi_shutdown() };
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
-
-    unsafe { drop(Box::from_raw(sapi)) };
   }
 }

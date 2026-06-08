@@ -375,37 +375,13 @@ mod tests {
   use hyper::header::AUTHORIZATION;
   use hyper::header::CONTENT_LENGTH;
   use hyper::header::CONTENT_TYPE;
-  use pasir_sapi::Sapi;
   use pasir_sapi::context::ServerContext;
   use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 
   use crate::sapi::context::Context;
   use crate::sapi::context::ContextBuilder;
   use crate::sapi::context::ContextSender;
-
-  struct TestSapi;
-
-  impl TestSapi {}
-
-  impl ext_php_rs::embed::Sapi for TestSapi {
-    type Context = Context;
-
-    fn name() -> &'static str {
-      ""
-    }
-
-    fn pretty_name() -> &'static str {
-      ""
-    }
-
-    fn ub_write(_ctx: &mut Self::Context, buf: &[u8]) -> usize {
-      buf.len()
-    }
-
-    fn log_message(_message: &str, _syslog_type: i32) {}
-  }
-
-  impl Sapi for TestSapi {}
+  use crate::sapi::tests::SapiTestGuard;
 
   #[rstest::rstest]
   #[case("/", "/index.php", None)]
@@ -430,17 +406,14 @@ mod tests {
 
   #[test]
   fn test_flush() {
-    let sapi = TestSapi::build_module().unwrap().into_raw();
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
-    unsafe { pasir_sys::sapi_startup(sapi) };
-    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+    let _guard = SapiTestGuard::new();
 
     let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
     let context = ContextBuilder::default().sender(context_sender).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
     unsafe { pasir_sys::php_output_startup() };
-    let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+    let context = Context::from_server_context(SapiGlobals::get().server_context);
 
     // assert that `flush` is true if the request not finished yet.
     assert!(context.flush());
@@ -448,10 +421,6 @@ mod tests {
     assert!(context.finish_request());
     // assert that `flush` is false if the request finished already.
     assert!(!context.flush());
-
-    unsafe { pasir_sys::php_module_shutdown() };
-    unsafe { pasir_sys::sapi_shutdown() };
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
   }
 
   #[test]
@@ -485,10 +454,7 @@ mod tests {
 
   #[test]
   fn test_read_post() {
-    let sapi = TestSapi::build_module().unwrap().into_raw();
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
-    unsafe { pasir_sys::sapi_startup(sapi) };
-    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+    let _guard = SapiTestGuard::new();
 
     let request = Request::new(Bytes::from_static(b"Foo"));
     let mut context = ContextBuilder::default().request(request).build();
@@ -508,18 +474,11 @@ mod tests {
     buf.copy_from_slice(b"Bar");
     assert_eq!(context.read_post(buf), 0);
     assert_eq!(str::from_utf8(buf), Ok("Bar"));
-
-    unsafe { pasir_sys::php_module_shutdown() };
-    unsafe { pasir_sys::sapi_shutdown() };
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
   }
 
   #[test]
   fn test_register_server_variables() {
-    let sapi = TestSapi::build_module().unwrap().into_raw();
-    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
-    unsafe { pasir_sys::sapi_startup(sapi) };
-    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+    let _guard = SapiTestGuard::new();
 
     let localhost = Ipv4Addr::LOCALHOST;
     let root = PathBuf::from("/foo");
@@ -564,8 +523,5 @@ mod tests {
     assert_eq!(vars.get("SERVER_NAME").map(|var| var.string()), Some(Some(localhost.to_string())));
     assert_eq!(vars.get("HTTP_COOKIE").map(|var| var.str()), Some(Some("foo=bar")));
     assert_eq!(vars.get("HTTP_HOST").map(|var| var.string()), Some(Some(localhost.to_string())));
-
-    unsafe { pasir_sys::php_module_shutdown() };
-    unsafe { pasir_sys::sapi_shutdown() };
   }
 }
