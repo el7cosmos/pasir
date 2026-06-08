@@ -109,3 +109,24 @@ impl pasir_sapi::Sapi for Sapi {
 fn pasir_finish_request() -> bool {
   Context::from_server_context(SapiGlobals::get().server_context).finish_request()
 }
+
+#[cfg(test)]
+mod tests {
+  use ext_php_rs::embed::Sapi as _;
+  use tracing_test::traced_test;
+
+  use crate::sapi::Sapi;
+
+  #[test]
+  #[traced_test]
+  fn test_log_message() {
+    Sapi::log_message("foo", 8);
+    assert!(!logs_contain("foo"));
+
+    for syslog_type in 0..=7 {
+      let message = &format!("logged with syslog level: {syslog_type}");
+      Sapi::log_message(message, syslog_type);
+      assert!(logs_contain(message));
+    }
+  }
+}
