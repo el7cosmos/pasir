@@ -113,9 +113,15 @@ fn pasir_finish_request() -> bool {
 #[cfg(test)]
 mod tests {
   use ext_php_rs::embed::Sapi as _;
+  use ext_php_rs::embed::ServerContext as _;
+  use ext_php_rs::zend::SapiGlobals;
+  use pasir_sapi::context::ServerContext;
   use tracing_test::traced_test;
 
   use crate::sapi::Sapi;
+  use crate::sapi::context::Context;
+  use crate::sapi::context::ContextBuilder;
+  use crate::sapi::context::ContextSender;
 
   #[test]
   #[traced_test]
@@ -128,5 +134,31 @@ mod tests {
       Sapi::log_message(message, syslog_type);
       assert!(logs_contain(message));
     }
+  }
+
+  #[test]
+  fn test_pasir_finish_request() {
+    let sapi = Sapi::build_module().expect("build_module failed").into_raw();
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_startup() };
+    unsafe { pasir_sys::sapi_startup(sapi) };
+    unsafe { pasir_sys::php_module_startup(sapi, std::ptr::null_mut()) };
+
+    let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
+    let context = ContextBuilder::default().sender(context_sender).build();
+    SapiGlobals::get_mut().server_context = context.into_raw().cast();
+
+    unsafe { pasir_sys::php_output_startup() };
+
+    assert!(super::pasir_finish_request());
+    assert!(!super::pasir_finish_request());
+
+    let context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+    assert!(context.is_request_finished());
+
+    unsafe { pasir_sys::php_module_shutdown() };
+    unsafe { pasir_sys::sapi_shutdown() };
+    unsafe { ext_php_rs::embed::ext_php_rs_sapi_shutdown() };
+
+    unsafe { drop(Box::from_raw(sapi)) };
   }
 }

@@ -102,10 +102,10 @@ mod tests {
   use std::sync::Arc;
 
   use bytes::Bytes;
+  use http_body_util::BodyExt;
   use http_body_util::Empty;
   use hyper::Request;
   use hyper::StatusCode;
-  use hyper::body::Body;
   use pasir_sapi::Sapi as _;
   use tower::Service;
 
@@ -130,14 +130,13 @@ mod tests {
 
     let mut service = PhpService::default();
 
-    let response = service.call(request.clone()).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_ne!(response.body().size_hint().lower(), 0);
+    for i in 0..100 {
+      let response = service.call(request.clone()).await.unwrap();
+      assert_eq!(response.status(), StatusCode::OK, "request {i} returned unexpected status");
 
-    // Assert that request shutdown cleanly and further requests can return a response.
-    let response = service.call(request.clone()).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_ne!(response.body().size_hint().lower(), 0);
+      let body = response.into_body().collect().await.unwrap().to_bytes();
+      assert!(!body.is_empty(), "request {i} returned an empty body");
+    }
 
     unsafe { pasir_sys::php_module_shutdown() }
     unsafe { pasir_sys::sapi_shutdown() }
