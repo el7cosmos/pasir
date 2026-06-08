@@ -92,7 +92,14 @@ impl Executable for Cli {
 
     unsafe { pasir_sys::sapi_startup(sapi) };
     if ini_builder.length > 0 {
-      unsafe { (*sapi).ini_entries = ini_builder.finish().as_ptr() };
+      #[cfg(not(php83))]
+      unsafe {
+        (*sapi).ini_entries = ini_builder.finish().as_ptr().cast_mut()
+      };
+      #[cfg(php83)]
+      unsafe {
+        (*sapi).ini_entries = ini_builder.finish().as_ptr()
+      };
     }
 
     if let Some(startup) = unsafe { (*sapi).startup }
