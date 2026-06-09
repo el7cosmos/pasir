@@ -1,21 +1,23 @@
-use std::ffi::CString;
-use std::ffi::NulError;
-use std::ffi::c_char;
-use std::ffi::c_int;
-use std::net::SocketAddr;
-use std::path::Path;
+use std::ops::Sub;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use ext_php_rs::embed::RequestInfo;
+use ext_php_rs::embed::ServerVarRegistrar;
 use ext_php_rs::zend::SapiGlobals;
+use headers::Authorization;
 use headers::ContentLength;
 use headers::ContentType;
 use headers::HeaderMapExt;
+use headers::Host;
+use headers::authorization::Basic;
 use hyper::HeaderMap;
 use hyper::Request;
 use hyper::Response;
 use hyper::StatusCode;
+use hyper::Uri;
 use hyper::Version;
 use hyper::body::Frame;
 use hyper::header::IntoHeaderName;
@@ -40,7 +42,7 @@ pub(crate) enum ResponseType {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct Context {
+pub struct Context {
   root: Arc<PathBuf>,
   script_name: String,
   path_info: Option<String>,
@@ -103,10 +105,6 @@ impl Context {
     }
   }
 
-  pub(crate) fn root(&self) -> &Path {
-    self.root.as_path()
-  }
-
   pub(crate) fn script_name(&self) -> &str {
     &self.script_name
   }
@@ -115,20 +113,8 @@ impl Context {
     self.path_info.as_deref()
   }
 
-  pub(crate) fn local_addr(&self) -> SocketAddr {
-    self.stream.local_addr()
-  }
-
-  pub(crate) fn peer_addr(&self) -> SocketAddr {
-    self.stream.peer_addr()
-  }
-
   pub(crate) fn headers(&self) -> &HeaderMap {
     self.request.headers()
-  }
-
-  pub(crate) fn version(&self) -> Version {
-    self.request.version()
   }
 
   pub(crate) fn append_response_header<K>(&mut self, key: K, value: HeaderValue)
@@ -166,38 +152,21 @@ impl Context {
   }
 }
 
-impl ServerContext for Context {
-  #[instrument(skip(self), err)]
-  fn init_sapi_globals(&mut self) -> Result<(), NulError> {
+impl ext_php_rs::embed::ServerContext for Context {
+  fn init_request_info(&self, info: &mut RequestInfo) {
     let uri = self.request.uri();
     let headers = self.request.headers();
     let path_translated = format!("{}{}", self.root.to_string_lossy(), self.script_name);
 
-    let mut sapi_globals = SapiGlobals::get_mut();
-
-    sapi_globals.sapi_headers.http_response_code = StatusCode::OK.as_u16() as c_int;
-    sapi_globals.request_info.request_method = CString::new(self.request.method().as_str())?.into_raw().cast_const();
-    sapi_globals.request_info.query_string = uri
-      .query()
-      .and_then(|query| CString::new(query).ok())
-      .map(|query| query.into_raw())
-      .unwrap_or_else(std::ptr::null_mut);
-    sapi_globals.request_info.path_translated = CString::new(path_translated)?.into_raw();
-    sapi_globals.request_info.request_uri = CString::new(uri.to_string())?.into_raw();
-    sapi_globals.request_info.content_length = headers
+    info.request_method = Some(self.request.method().to_string());
+    info.query_string = uri.query().map(|query| query.to_string());
+    info.request_uri = Some(uri.to_string());
+    info.path_translated = Some(path_translated);
+    info.content_type = headers.typed_get::<ContentType>().map(|content_type| content_type.to_string());
+    info.content_length = headers
       .typed_get::<ContentLength>()
       .map_or(0, |content_length| content_length.0.cast_signed());
-    sapi_globals.request_info.content_type = headers.typed_get::<ContentType>().map_or(Ok(std::ptr::null()), |content_type| {
-      CString::new(content_type.to_string()).map(|content_type| content_type.into_raw().cast_const())
-    })?;
-
-    if let Some(auth) = headers.get("Authorization") {
-      unsafe {
-        pasir_sys::php_handle_auth_data(CString::new(auth.as_bytes())?.as_ptr());
-      }
-    }
-
-    let proto_num = match self.request.version() {
+    info.proto_num = match self.request.version() {
       Version::HTTP_09 => 900,
       Version::HTTP_10 => 1000,
       Version::HTTP_11 => 1100,
@@ -205,23 +174,39 @@ impl ServerContext for Context {
       Version::HTTP_3 => 3000,
       _ => unreachable!(),
     };
-    sapi_globals.request_info.proto_num = proto_num;
-
-    Ok(())
+    if let Some(auth) = headers.typed_get::<Authorization<Basic>>() {
+      info.auth_user = Some(auth.username().to_string());
+      info.auth_password = Some(auth.password().to_string());
+    }
   }
 
-  fn read_post(&mut self, buffer: *mut c_char, to_read: usize) -> usize {
+  fn read_post(&mut self, buf: &mut [u8]) -> usize {
+    let sapi_globals = SapiGlobals::get();
+
+    let content_length = sapi_globals.request_info().content_length();
+    if content_length == 0 {
+      return 0;
+    }
+
+    // If we've read everything, return 0
+    if sapi_globals.read_post_bytes >= content_length {
+      return 0;
+    }
+
+    // Calculate how much we can read
+    let to_read = buf.len().min(content_length.sub(sapi_globals.read_post_bytes) as usize);
+
     if to_read > self.request.body_mut().len() {
       return 0;
     }
 
     let bytes = self.request.body_mut().split_to(to_read);
-    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, bytes.len()) };
+    buf[..bytes.len()].copy_from_slice(&bytes);
     bytes.len()
   }
 
-  fn is_request_finished(&self) -> bool {
-    self.request_finished
+  fn read_cookies(&self) -> Option<&str> {
+    self.headers().get("Cookie")?.to_str().ok()
   }
 
   #[instrument(skip(self))]
@@ -245,6 +230,56 @@ impl ServerContext for Context {
     }
 
     true
+  }
+
+  fn is_request_finished(&self) -> bool {
+    self.request_finished
+  }
+}
+
+impl ServerContext for Context {
+  #[instrument(skip(self, registrar))]
+  fn register_server_variables(&self, registrar: &mut ServerVarRegistrar) {
+    registrar.register(
+      "SERVER_SOFTWARE",
+      &format!("{}/{} ({})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_DESCRIPTION")),
+    );
+
+    registrar.register("REQUEST_URI", self.request.uri().path());
+    registrar.register("REQUEST_METHOD", self.request.method().as_str());
+    if let Some(query) = self.request.uri().query() {
+      registrar.register("QUERY_STRING", query);
+    }
+
+    let root = self.root.to_str().unwrap_or_default();
+    let path_info = self.path_info();
+    let php_self = format!("{}{}", self.script_name, path_info.unwrap_or_default());
+
+    registrar.register("PHP_SELF", &php_self);
+    registrar.register("SERVER_PROTOCOL", &format!("{:?}", self.request.version()));
+    registrar.register("DOCUMENT_ROOT", root);
+    registrar.register("REMOTE_ADDR", &self.stream.peer_addr().ip().to_string());
+    registrar.register("REMOTE_PORT", &self.stream.peer_addr().port().to_string());
+    registrar.register("SCRIPT_FILENAME", &format!("{root}{}", self.script_name));
+    registrar.register("SERVER_ADDR", &self.stream.local_addr().ip().to_string());
+    registrar.register("SERVER_PORT", &self.stream.local_addr().port().to_string());
+    registrar.register("SCRIPT_NAME", &self.script_name);
+    if let Some(path_info) = path_info {
+      registrar.register("PATH_INFO", path_info);
+    }
+
+    let headers = self.request.headers();
+    if let Ok(uri) = match headers.typed_get::<Host>() {
+      None => Uri::from_maybe_shared(""),
+      Some(host) => Uri::from_str(host.hostname()),
+    } {
+      registrar.register("SERVER_NAME", uri.host().unwrap());
+    }
+
+    for (name, value) in headers.iter() {
+      let header_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
+      registrar.register(&header_name, value.to_str().unwrap_or_default());
+    }
   }
 }
 
@@ -320,30 +355,35 @@ impl ContextSender {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-  use std::ffi::CString;
-  use std::ffi::c_int;
+  use std::collections::HashMap;
+  use std::net::Ipv4Addr;
   use std::path::PathBuf;
   use std::sync::Arc;
 
   use bytes::Bytes;
+  use ext_php_rs::embed::RequestInfo;
+  use ext_php_rs::embed::ServerContext as _;
+  use ext_php_rs::embed::ServerVarRegistrar;
+  use ext_php_rs::types::Zval;
   use ext_php_rs::zend::SapiGlobals;
   use hyper::Method;
   use hyper::Request;
-  use hyper::StatusCode;
   use hyper::Uri;
   use hyper::Version;
+  use hyper::header::AUTHORIZATION;
   use hyper::header::CONTENT_LENGTH;
   use hyper::header::CONTENT_TYPE;
   use pasir_sapi::context::ServerContext;
-  use rstest::rstest;
+  use pasir_sys::ZEND_RESULT_CODE_SUCCESS;
 
   use crate::sapi::context::Context;
   use crate::sapi::context::ContextBuilder;
   use crate::sapi::context::ContextSender;
-  use crate::sapi::tests::TestSapi;
+  use crate::sapi::tests::SapiTestGuard;
 
-  #[rstest]
+  #[rstest::rstest]
   #[case("/", "/index.php", None)]
   #[case("/..", "", None)]
   #[case("/foo", "/foo/index.php", None)]
@@ -365,47 +405,15 @@ mod tests {
   }
 
   #[test]
-  fn test_init_sapi_globals() {
-    let _guard = TestSapi::new();
-
-    let uri = Uri::builder().path_and_query("/foo?bar=baz").build().unwrap();
-    let request = Request::builder()
-      .method(Method::POST)
-      .version(Version::HTTP_3)
-      .header(CONTENT_LENGTH, "Foo Bar".len())
-      .header(CONTENT_TYPE, "text/plain")
-      .uri(uri)
-      .body(Bytes::default())
-      .unwrap();
-    let mut context = ContextBuilder::default().request(request).build();
-    context.script_name = "./index.php".to_string();
-    let results = context.init_sapi_globals();
-    assert!(results.is_ok());
-
-    let sapi_globals = SapiGlobals::get();
-    assert_eq!(sapi_globals.sapi_headers().http_response_code, StatusCode::OK.as_u16() as c_int);
-
-    let request_info = sapi_globals.request_info();
-    assert_eq!(request_info.request_method(), Some(Method::POST.as_str()));
-    assert_eq!(request_info.query_string(), Some("bar=baz"));
-    assert_eq!(request_info.path_translated(), Some("./index.php"));
-    assert_eq!(request_info.request_uri(), Some("/foo?bar=baz"));
-    assert_eq!(request_info.content_length(), "Foo Bar".len() as i64);
-    assert_eq!(request_info.content_type(), Some("text/plain"));
-    assert_eq!(request_info.auth_user(), None);
-    assert_eq!(request_info.proto_num(), 3000);
-  }
-
-  #[test]
   fn test_flush() {
-    let _sapi = TestSapi::new();
+    let _guard = SapiTestGuard::new();
 
     let (_head_rx, _body_rx, context_sender) = ContextSender::receiver();
     let context = ContextBuilder::default().sender(context_sender).build();
     SapiGlobals::get_mut().server_context = context.into_raw().cast();
 
     unsafe { pasir_sys::php_output_startup() };
-    let mut context = unsafe { Context::from_raw(SapiGlobals::get().server_context) };
+    let context = Context::from_server_context(SapiGlobals::get().server_context);
 
     // assert that `flush` is true if the request not finished yet.
     assert!(context.flush());
@@ -416,26 +424,104 @@ mod tests {
   }
 
   #[test]
+  fn test_init_request_info() {
+    let uri = Uri::builder().path_and_query("/foo?bar=baz").build().unwrap();
+    let request = Request::builder()
+      .method(Method::POST)
+      .version(Version::HTTP_3)
+      .header(CONTENT_LENGTH, "Foo Bar".len())
+      .header(CONTENT_TYPE, "text/plain")
+      .header(AUTHORIZATION, "Basic Zm9vOmJhcg==")
+      .uri(uri)
+      .body(Bytes::default())
+      .unwrap();
+    let mut context = ContextBuilder::default().request(request).build();
+    context.script_name = "./index.php".to_string();
+
+    let mut request_info = RequestInfo::default();
+    context.init_request_info(&mut request_info);
+
+    assert_eq!(request_info.request_method, Some(Method::POST.to_string()));
+    assert_eq!(request_info.query_string, Some("bar=baz".to_string()));
+    assert_eq!(request_info.request_uri, Some("/foo?bar=baz".to_string()));
+    assert_eq!(request_info.path_translated, Some("./index.php".to_string()));
+    assert_eq!(request_info.content_type, Some("text/plain".to_string()));
+    assert_eq!(request_info.content_length, "Foo Bar".len() as i64);
+    assert_eq!(request_info.proto_num, 3000);
+    assert_eq!(request_info.auth_user, Some("foo".to_string()));
+    assert_eq!(request_info.auth_password, Some("bar".to_string()));
+  }
+
+  #[test]
   fn test_read_post() {
-    let _sapi = TestSapi::new();
+    let _guard = SapiTestGuard::new();
 
     let request = Request::new(Bytes::from_static(b"Foo"));
     let mut context = ContextBuilder::default().request(request).build();
 
-    let buffer_raw = CString::default().into_raw();
-    assert_eq!(context.read_post(buffer_raw, 1), 1);
-    let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.as_c_str(), c"F");
+    SapiGlobals::get_mut().request_info.content_length = 3;
 
-    let buffer_raw = CString::default().into_raw();
-    assert_eq!(context.read_post(buffer_raw, 2), 2);
-    // SapiGlobals::get_mut().read_post_bytes = 3;
-    let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.as_c_str(), c"oo");
+    let buf: &mut [u8; 1] = &mut Default::default();
+    assert_eq!(context.read_post(buf), 1);
+    assert_eq!(str::from_utf8(buf), Ok("F"));
 
-    let buffer_raw = CString::default().into_raw();
-    assert_eq!(context.read_post(buffer_raw, 3), 0);
-    let buffer = unsafe { CString::from_raw(buffer_raw) };
-    assert_eq!(buffer.as_c_str(), c"");
+    let buf: &mut [u8; 2] = &mut Default::default();
+    assert_eq!(context.read_post(buf), 2);
+    assert_eq!(str::from_utf8(buf), Ok("oo"));
+
+    SapiGlobals::get_mut().read_post_bytes = 3;
+    let buf = &mut [0u8; 3];
+    buf.copy_from_slice(b"Bar");
+    assert_eq!(context.read_post(buf), 0);
+    assert_eq!(str::from_utf8(buf), Ok("Bar"));
+  }
+
+  #[test]
+  fn test_register_server_variables() {
+    let _guard = SapiTestGuard::new();
+
+    let localhost = Ipv4Addr::LOCALHOST;
+    let root = PathBuf::from("/foo");
+    let request = Request::builder()
+      .header("Cookie", "foo=bar")
+      .header("Host", localhost.to_string())
+      .uri(Uri::builder().path_and_query("/foo/bar?foo=bar").build().unwrap())
+      .body(Bytes::default())
+      .unwrap();
+    let context = ContextBuilder::default()
+      .root(root)
+      .script_name("/index.php")
+      .path_info("/foo/bar")
+      .request(request)
+      .build();
+
+    assert_eq!(unsafe { pasir_sys::php_request_startup() }, ZEND_RESULT_CODE_SUCCESS);
+    unsafe { pasir_sys::php_request_shutdown(std::ptr::null_mut()) };
+
+    let mut vars = Zval::new();
+    let _ = vars.set_array(HashMap::<String, String>::new());
+    assert!(vars.is_array());
+    let vars_raw = Box::into_raw(Box::new(vars));
+    context.register_server_variables(&mut unsafe { ServerVarRegistrar::from_raw(vars_raw) });
+
+    let zval = unsafe { Box::from_raw(vars_raw) };
+    let vars = zval.array().unwrap();
+    assert!(vars.get("SERVER_SOFTWARE").is_some());
+    assert_eq!(vars.get("REQUEST_URI").map(|var| var.str()), Some(Some("/foo/bar")));
+    assert_eq!(vars.get("REQUEST_METHOD").map(|var| var.str()), Some(Some("GET")));
+    assert_eq!(vars.get("QUERY_STRING").map(|var| var.str()), Some(Some("foo=bar")));
+    assert_eq!(vars.get("PHP_SELF").map(|var| var.str()), Some(Some("/index.php/foo/bar")));
+    assert_eq!(vars.get("SERVER_PROTOCOL").map(|var| var.str()), Some(Some("HTTP/1.1")));
+    assert_eq!(vars.get("DOCUMENT_ROOT").map(|var| var.str()), Some(Some("/foo")));
+    assert_eq!(vars.get("REMOTE_ADDR").map(|var| var.string()), Some(Some(localhost.to_string())));
+    assert_eq!(vars.get("REMOTE_PORT").map(|var| var.str()), Some(Some("0")));
+    assert_eq!(vars.get("SCRIPT_FILENAME").map(|var| var.str()), Some(Some("/foo/index.php")));
+    assert_eq!(vars.get("SERVER_ADDR").map(|var| var.string()), Some(Some(localhost.to_string())));
+    assert_eq!(vars.get("SERVER_PORT").map(|var| var.str()), Some(Some("0")));
+    assert_eq!(vars.get("SCRIPT_NAME").map(|var| var.str()), Some(Some("/index.php")));
+    assert_eq!(vars.get("PATH_INFO").map(|var| var.str()), Some(Some("/foo/bar")));
+    assert_eq!(vars.get("SERVER_NAME").map(|var| var.string()), Some(Some(localhost.to_string())));
+    assert_eq!(vars.get("HTTP_COOKIE").map(|var| var.str()), Some(Some("foo=bar")));
+    assert_eq!(vars.get("HTTP_HOST").map(|var| var.string()), Some(Some(localhost.to_string())));
   }
 }
